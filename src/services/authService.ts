@@ -105,6 +105,7 @@ export class AuthService {
       {
         id: user.id,
         type: 'refresh',
+        jti: `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`, // Add unique identifier
       },
       jwtSecret,
       { expiresIn: this.REFRESH_TOKEN_EXPIRY }
@@ -113,21 +114,27 @@ export class AuthService {
 
   async createAuditLog(data: AuditLogData): Promise<void> {
     try {
+      const auditData: any = {
+        action: data.action as any,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        changes: data.changes ? JSON.parse(JSON.stringify(data.changes)) : undefined,
+        description: data.description,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        requestMethod: data.requestMethod,
+        requestPath: data.requestPath,
+        success: data.success !== undefined ? data.success : true,
+        errorMessage: data.errorMessage,
+      };
+
+      // Only include userId if it's not 'unknown'
+      if (data.userId && data.userId !== 'unknown') {
+        auditData.userId = data.userId;
+      }
+
       await prisma.auditLog.create({
-        data: {
-          userId: data.userId,
-          action: data.action as any,
-          entityType: data.entityType,
-          entityId: data.entityId,
-          changes: data.changes ? JSON.parse(JSON.stringify(data.changes)) : undefined,
-          description: data.description,
-          ipAddress: data.ipAddress,
-          userAgent: data.userAgent,
-          requestMethod: data.requestMethod,
-          requestPath: data.requestPath,
-          success: data.success !== undefined ? data.success : true,
-          errorMessage: data.errorMessage,
-        },
+        data: auditData,
       });
     } catch (error) {
       logger.error('Error creating audit log:', error);
@@ -247,6 +254,18 @@ export class AuthService {
       const refreshToken = this.generateRefreshToken(user);
       const sessionId = uuidv4();
 
+      // Store refresh token in database
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
+      
+      await prisma.refreshToken.create({
+        data: {
+          token: refreshToken,
+          userId: user.id,
+          expiresAt,
+        },
+      });
+
       await setSession(sessionId, user.id, this.SESSION_EXPIRY);
       await setRefreshToken(user.id, refreshToken, this.SESSION_EXPIRY);
 
@@ -299,14 +318,19 @@ export class AuthService {
         throw new Error('Invalid token type');
       }
 
-      const storedToken = await getRefreshToken(decoded.id);
-      if (!storedToken || storedToken !== refreshToken) {
+      // Check if refresh token exists in database and is not revoked
+      const storedToken = await prisma.refreshToken.findUnique({
+        where: { token: refreshToken },
+        include: { user: true },
+      });
+
+      if (!storedToken) {
         await this.createAuditLog({
           userId: decoded.id,
           action: 'VIEW',
           entityType: 'auth',
           entityId: 'token_refresh',
-          description: 'Invalid or expired refresh token',
+          description: 'Refresh token not found in database',
           ipAddress,
           userAgent,
           success: false,
@@ -315,9 +339,55 @@ export class AuthService {
         throw new Error('Invalid refresh token');
       }
 
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-      }) as User | null;
+      if (storedToken.isRevoked) {
+        await this.createAuditLog({
+          userId: decoded.id,
+          action: 'VIEW',
+          entityType: 'auth',
+          entityId: 'token_refresh',
+          description: 'Attempted to use revoked refresh token',
+          ipAddress,
+          userAgent,
+          success: false,
+          errorMessage: 'Token has been revoked',
+        });
+        throw new Error('Token has been revoked');
+      }
+
+      if (storedToken.expiresAt < new Date()) {
+        await this.createAuditLog({
+          userId: decoded.id,
+          action: 'VIEW',
+          entityType: 'auth',
+          entityId: 'token_refresh',
+          description: 'Refresh token expired',
+          ipAddress,
+          userAgent,
+          success: false,
+          errorMessage: 'Refresh token expired',
+        });
+        throw new Error('Refresh token expired');
+      }
+
+      // Also check Redis (for backward compatibility and faster validation)
+      // If not in Redis but valid in DB, that's okay - we'll re-populate it
+      const redisToken = await getRefreshToken(decoded.id);
+      if (redisToken && redisToken !== refreshToken) {
+        await this.createAuditLog({
+          userId: decoded.id,
+          action: 'VIEW',
+          entityType: 'auth',
+          entityId: 'token_refresh',
+          description: 'Token mismatch between Redis and database',
+          ipAddress,
+          userAgent,
+          success: false,
+          errorMessage: 'Invalid refresh token',
+        });
+        throw new Error('Invalid refresh token');
+      }
+
+      const user = storedToken.user as User;
 
       if (!user || !user.isActive) {
         throw new Error('User not found or inactive');
@@ -325,6 +395,42 @@ export class AuthService {
 
       const newAccessToken = this.generateAccessToken(user);
       const newRefreshToken = this.generateRefreshToken(user);
+
+      // Revoke old refresh token
+      await prisma.refreshToken.update({
+        where: { token: refreshToken },
+        data: { isRevoked: true },
+      });
+
+      // Store new refresh token in database
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
+      
+      try {
+        await prisma.refreshToken.create({
+          data: {
+            token: newRefreshToken,
+            userId: user.id,
+            expiresAt,
+          },
+        });
+      } catch (error: any) {
+        // If unique constraint fails, try to delete the existing token and retry
+        if (error.code === 'P2002') {
+          await prisma.refreshToken.deleteMany({
+            where: { token: newRefreshToken },
+          });
+          await prisma.refreshToken.create({
+            data: {
+              token: newRefreshToken,
+              userId: user.id,
+              expiresAt,
+            },
+          });
+        } else {
+          throw error;
+        }
+      }
 
       await setRefreshToken(user.id, newRefreshToken, this.SESSION_EXPIRY);
 
@@ -359,6 +465,17 @@ export class AuthService {
     userAgent?: string
   ): Promise<void> {
     try {
+      // Revoke all active refresh tokens for this user
+      await prisma.refreshToken.updateMany({
+        where: {
+          userId,
+          isRevoked: false,
+        },
+        data: {
+          isRevoked: true,
+        },
+      });
+
       await deleteSession(sessionId);
       await deleteRefreshToken(userId);
       await blacklistToken(accessToken, 15 * 60);
@@ -458,6 +575,25 @@ export class AuthService {
     } catch (error) {
       logger.error('Error getting user:', error);
       throw error;
+    }
+  }
+
+  async cleanupExpiredTokens(): Promise<void> {
+    try {
+      const result = await prisma.refreshToken.deleteMany({
+        where: {
+          OR: [
+            { expiresAt: { lt: new Date() } },
+            { isRevoked: true, updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } }, // Delete revoked tokens older than 7 days
+          ],
+        },
+      });
+
+      if (result.count > 0) {
+        logger.info(`Cleaned up ${result.count} expired/revoked refresh tokens`);
+      }
+    } catch (error) {
+      logger.error('Error cleaning up expired tokens:', error);
     }
   }
 }

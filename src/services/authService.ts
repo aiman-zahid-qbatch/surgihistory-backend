@@ -114,21 +114,27 @@ export class AuthService {
 
   async createAuditLog(data: AuditLogData): Promise<void> {
     try {
+      const auditData: any = {
+        action: data.action as any,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        changes: data.changes ? JSON.parse(JSON.stringify(data.changes)) : undefined,
+        description: data.description,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        requestMethod: data.requestMethod,
+        requestPath: data.requestPath,
+        success: data.success !== undefined ? data.success : true,
+        errorMessage: data.errorMessage,
+      };
+
+      // Only include userId if it's not 'unknown'
+      if (data.userId && data.userId !== 'unknown') {
+        auditData.userId = data.userId;
+      }
+
       await prisma.auditLog.create({
-        data: {
-          userId: data.userId,
-          action: data.action as any,
-          entityType: data.entityType,
-          entityId: data.entityId,
-          changes: data.changes ? JSON.parse(JSON.stringify(data.changes)) : undefined,
-          description: data.description,
-          ipAddress: data.ipAddress,
-          userAgent: data.userAgent,
-          requestMethod: data.requestMethod,
-          requestPath: data.requestPath,
-          success: data.success !== undefined ? data.success : true,
-          errorMessage: data.errorMessage,
-        },
+        data: auditData,
       });
     } catch (error) {
       logger.error('Error creating audit log:', error);

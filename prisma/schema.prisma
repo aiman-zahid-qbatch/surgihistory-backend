@@ -122,11 +122,15 @@ model Patient {
   address       String        @db.Text
   
   assignedDoctorId String?
-  assignedDoctor   Doctor?     @relation(fields: [assignedDoctorId], references: [id])
+  assignedDoctor   Doctor?     @relation("AssignedPatients", fields: [assignedDoctorId], references: [id])
+  
+  createdById   String?
+  createdBy     Doctor?       @relation("CreatedPatients", fields: [createdById], references: [id])
   
   surgeries     Surgery[]
   uploads       PatientUpload[]
   notifications Notification[]
+  privateNotes  PrivateNote[]
   
   isArchived    Boolean       @default(false)
   archivedAt    DateTime?
@@ -136,6 +140,7 @@ model Patient {
   
   @@index([cnic])
   @@index([assignedDoctorId])
+  @@index([createdById])
   @@index([patientId])
   @@index([fullName])
 }
@@ -150,7 +155,8 @@ model Doctor {
   contactNumber String
   whatsappNumber String?
   
-  patients      Patient[]
+  assignedPatients Patient[]   @relation("AssignedPatients")
+  createdPatients  Patient[]   @relation("CreatedPatients")
   surgeries     Surgery[]
   followUps     FollowUp[]
   privateNotes  PrivateNote[]
@@ -342,6 +348,9 @@ model PrivateNote {
   doctorId      String
   doctor        Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   
+  patientId     String
+  patient       Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
   followUpId    String?
   followUp      FollowUp?     @relation(fields: [followUpId], references: [id], onDelete: Cascade)
   
@@ -364,6 +373,7 @@ model PrivateNote {
   updatedAt     DateTime      @updatedAt
   
   @@index([doctorId])
+  @@index([patientId])
   @@index([followUpId])
   @@index([surgeryId])
   @@index([createdAt])
@@ -456,8 +466,8 @@ model Notification {
 
 model AuditLog {
   id            String        @id @default(uuid())
-  userId        String
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   action        AuditAction
   entityType    String        // "patient", "surgery", "followup", "media", etc.

@@ -126,6 +126,39 @@ export class UserService {
         },
       });
 
+      // Create Doctor profile for DOCTOR and SURGEON roles
+      if (data.role === UserRole.DOCTOR || data.role === UserRole.SURGEON) {
+        await prisma.doctor.create({
+          data: {
+            userId: user.id,
+            fullName: data.name || data.email.split('@')[0],
+            contactNumber: '', // Can be updated later
+            specialization: data.role === UserRole.SURGEON ? 'Surgeon' : null,
+          },
+        });
+        logger.info(`Doctor profile created for user: ${user.email}`);
+      }
+
+      // Create Patient profile for PATIENT role
+      if (data.role === UserRole.PATIENT) {
+        // Generate a unique patient ID
+        const patientCount = await prisma.patient.count();
+        const patientId = `PAT-${new Date().getFullYear()}-${String(patientCount + 1).padStart(4, '0')}`;
+        
+        await prisma.patient.create({
+          data: {
+            userId: user.id,
+            patientId: patientId,
+            cnic: '', // Must be filled later
+            fullName: data.name || data.email.split('@')[0],
+            fatherName: '', // Must be filled later
+            contactNumber: '', // Must be filled later
+            address: '', // Must be filled later
+          },
+        });
+        logger.info(`Patient profile created for user: ${user.email} with ID: ${patientId}`);
+      }
+
       // Send welcome email with credentials (don't fail user creation if email fails)
       try {
         await emailService.sendWelcomeEmail(

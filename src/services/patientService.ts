@@ -31,6 +31,9 @@ interface CreatePatientData {
   contactNumber: string;
   whatsappNumber?: string;
   address: string;
+  createdBy: {
+    connect: { id: string };
+  };
   assignedDoctor?: {
     connect: { id: string };
   };
@@ -42,11 +45,6 @@ interface UpdatePatientData {
   contactNumber?: string;
   address?: string;
   assignedDoctorId?: string;
-}
-
-interface PatientFilters {
-  assignedDoctorId?: string;
-  cnic?: string;
 }
 
 export class PatientService {
@@ -99,10 +97,17 @@ export class PatientService {
     }
   }
 
-  async getAllPatients(filters?: PatientFilters): Promise<Patient[]> {
+  async getAllPatients(createdById?: string): Promise<Patient[]> {
     try {
+      const whereClause: any = { isArchived: false };
+      
+      // If createdById is provided, filter by it (for surgeons/doctors)
+      if (createdById) {
+        whereClause.createdById = createdById;
+      }
+
       const patients = await prisma.patient.findMany({
-        where: { ...filters, isArchived: false },
+        where: whereClause,
         include: {
           user: { select: { email: true, role: true } },
           assignedDoctor: { include: { user: true } },

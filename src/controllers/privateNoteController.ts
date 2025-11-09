@@ -2,12 +2,24 @@ import { Response, NextFunction } from 'express';
 import privateNoteService from '../services/privateNoteService';
 import { logger } from '../config/logger';
 import { AuthRequest, UserRole } from '../middlewares/auth';
+import { prisma } from '../config/database';
+
+/**
+ * Helper function to get doctor ID from user ID
+ */
+async function getDoctorId(userId: string): Promise<string | null> {
+  const doctor = await prisma.doctor.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  return doctor?.id || null;
+}
 
 export class PrivateNoteController {
   /**
    * Create new private note (doctor-only)
    */
-  async createPrivateNote(req: AuthRequest, res: Response, next: NextFunction) {
+  createPrivateNote = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -17,18 +29,28 @@ export class PrivateNoteController {
         return;
       }
 
-      // Ensure only doctors can create private notes
-      if (req.user.role !== UserRole.DOCTOR && req.user.role !== UserRole.ADMIN) {
+      // Ensure only doctors and surgeons can create private notes
+      if (req.user.role !== UserRole.DOCTOR && req.user.role !== UserRole.SURGEON) {
         res.status(403).json({
           success: false,
-          message: 'Only doctors can create private notes',
+          message: 'Only doctors and surgeons can create private notes',
+        });
+        return;
+      }
+
+      // Get doctor ID from user ID
+      const doctorId = await getDoctorId(req.user.id);
+      if (!doctorId) {
+        res.status(404).json({
+          success: false,
+          message: 'Doctor profile not found. Please contact administrator.',
         });
         return;
       }
 
       const note = await privateNoteService.createPrivateNote({
         ...req.body,
-        doctorId: req.user.id,
+        doctorId,
       });
 
       res.status(201).json({
@@ -44,7 +66,7 @@ export class PrivateNoteController {
   /**
    * Get private note by ID (doctor-only, own notes)
    */
-  async getPrivateNote(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  getPrivateNote = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -78,7 +100,7 @@ export class PrivateNoteController {
   /**
    * Get all private notes for current doctor
    */
-  async getMyPrivateNotes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  getMyPrivateNotes = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -103,7 +125,7 @@ export class PrivateNoteController {
   /**
    * Get private notes by follow-up
    */
-  async getPrivateNotesByFollowUp(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  getPrivateNotesByFollowUp = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -129,7 +151,7 @@ export class PrivateNoteController {
   /**
    * Get private notes by surgery
    */
-  async getPrivateNotesBySurgery(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  getPrivateNotesBySurgery = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -153,9 +175,46 @@ export class PrivateNoteController {
   }
 
   /**
+   * Get private notes by patient
+   */
+  getPrivateNotesByPatient = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
+      const { patientId } = req.params;
+      
+      // Get doctor ID from user ID
+      const doctorId = await getDoctorId(req.user.id);
+      if (!doctorId) {
+        res.status(404).json({
+          success: false,
+          message: 'Doctor profile not found',
+        });
+        return;
+      }
+
+      const notes = await privateNoteService.getPrivateNotesByPatient(patientId, doctorId);
+
+      res.json({
+        success: true,
+        data: notes,
+      });
+    } catch (error) {
+      logger.error('Error in getPrivateNotesByPatient controller:', error);
+      next(error);
+    }
+  }
+
+  /**
    * Update private note
    */
-  async updatePrivateNote(req: AuthRequest, res: Response, next: NextFunction) {
+  updatePrivateNote = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -179,9 +238,9 @@ export class PrivateNoteController {
   }
 
   /**
-   * Add transcription to private note
+   * Add transcription to audio note
    */
-  async addTranscription(req: AuthRequest, res: Response, next: NextFunction) {
+  addTranscription = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -217,7 +276,7 @@ export class PrivateNoteController {
   /**
    * Archive private note (soft delete)
    */
-  async archivePrivateNote(req: AuthRequest, res: Response, next: NextFunction) {
+  archivePrivateNote = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -244,7 +303,7 @@ export class PrivateNoteController {
   /**
    * Search private notes (own notes only)
    */
-  async searchPrivateNotes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  searchPrivateNotes = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -279,7 +338,7 @@ export class PrivateNoteController {
   /**
    * Get private note count for current doctor
    */
-  async getPrivateNoteCount(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  getPrivateNoteCount = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({

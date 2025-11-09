@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 
 interface CreatePrivateNoteData {
   doctorId: string;
+  patientId: string;
   followUpId?: string;
   surgeryId?: string;
   title?: string;
@@ -35,6 +36,7 @@ export class PrivateNoteService {
       const note = await prisma.privateNote.create({
         data: {
           doctorId: data.doctorId,
+          patientId: data.patientId,
           followUpId: data.followUpId,
           surgeryId: data.surgeryId,
           title: data.title,
@@ -49,6 +51,13 @@ export class PrivateNoteService {
           doctor: {
             select: {
               id: true,
+              fullName: true,
+            },
+          },
+          patient: {
+            select: {
+              id: true,
+              patientId: true,
               fullName: true,
             },
           },
@@ -218,6 +227,43 @@ export class PrivateNoteService {
       return notes;
     } catch (error) {
       logger.error(`Error fetching private notes for surgery ${surgeryId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get private notes for a specific patient
+   * Only shows notes created by the requesting doctor
+   */
+  async getPrivateNotesByPatient(patientId: string, doctorId: string) {
+    try {
+      const notes = await prisma.privateNote.findMany({
+        where: {
+          patientId,
+          doctorId, // Security: Only the doctor's own notes
+          isArchived: false,
+        },
+        include: {
+          doctor: {
+            select: {
+              id: true,
+              fullName: true,
+            },
+          },
+          patient: {
+            select: {
+              id: true,
+              patientId: true,
+              fullName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return notes;
+    } catch (error) {
+      logger.error(`Error fetching private notes for patient ${patientId}:`, error);
       throw error;
     }
   }

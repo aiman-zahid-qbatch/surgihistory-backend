@@ -1,10 +1,12 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import patientService from '../services/patientService';
 import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { emailService } from '../services/emailService';
 import { UserRole } from '@prisma/client';
+import { AuthRequest } from '../middlewares/auth';
+import { prisma } from '../config/database';
 
 export class PatientController {
   // Generate a secure random password
@@ -20,8 +22,30 @@ export class PatientController {
     return password;
   }
 
-  createPatient = async (req: Request, res: Response, next: NextFunction) => {
+  createPatient = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
+      // Get doctor ID from user ID
+      const doctor = await prisma.doctor.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true },
+      });
+
+      if (!doctor) {
+        res.status(404).json({
+          success: false,
+          message: 'Doctor profile not found',
+        });
+        return;
+      }
+
       const { email, cnic, fullName, fatherName, contactNumber, whatsappNumber, address, assignedDoctorId } = req.body;
 
       // Generate a random secure password
@@ -49,6 +73,9 @@ export class PatientController {
         contactNumber,
         whatsappNumber: whatsappNumber || contactNumber,
         address,
+        createdBy: {
+          connect: { id: doctor.id },
+        },
         ...(assignedDoctorId && {
           assignedDoctor: {
             connect: { id: assignedDoctorId },
@@ -82,7 +109,7 @@ export class PatientController {
     }
   }
 
-  getPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  getPatient = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
       const patient = await patientService.getPatientById(id);
@@ -105,9 +132,27 @@ export class PatientController {
     }
   }
 
-  getAllPatients = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  getAllPatients = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const patients = await patientService.getAllPatients();
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
+      // Get doctor ID for surgeons/doctors to filter their patients
+      let createdById: string | undefined;
+      if (req.user.role === UserRole.SURGEON || req.user.role === UserRole.DOCTOR) {
+        const doctor = await prisma.doctor.findUnique({
+          where: { userId: req.user.id },
+          select: { id: true },
+        });
+        createdById = doctor?.id;
+      }
+
+      const patients = await patientService.getAllPatients(createdById);
       res.json({
         success: true,
         data: patients,
@@ -118,7 +163,7 @@ export class PatientController {
     }
   }
 
-  updatePatient = async (req: Request, res: Response, next: NextFunction) => {
+  updatePatient = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const patient = await patientService.updatePatient(id, req.body);
@@ -133,7 +178,7 @@ export class PatientController {
     }
   }
 
-  archivePatient = async (req: Request, res: Response, next: NextFunction) => {
+  archivePatient = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const patient = await patientService.archivePatient(id);
@@ -149,7 +194,7 @@ export class PatientController {
     }
   }
 
-  searchPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  searchPatients = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { q } = req.query;
       

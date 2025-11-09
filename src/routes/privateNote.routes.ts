@@ -7,8 +7,8 @@ const router = Router();
 // All private note routes require authentication
 router.use(authenticate);
 
-// All private note routes are DOCTOR-ONLY
-router.use(authorize(UserRole.DOCTOR, UserRole.ADMIN));
+// All private note routes are DOCTOR/SURGEON-ONLY (not ADMIN)
+router.use(authorize(UserRole.DOCTOR, UserRole.SURGEON));
 
 /**
  * @route   GET /api/private-notes/search
@@ -59,6 +59,16 @@ router.get(
 router.get(
   '/surgery/:surgeryId',
   privateNoteController.getPrivateNotesBySurgery
+);
+
+/**
+ * @route   GET /api/private-notes/patient/:patientId
+ * @desc    Get all private notes for a specific patient (own notes)
+ * @access  Private (Doctor, Admin only)
+ */
+router.get(
+  '/patient/:patientId',
+  privateNoteController.getPrivateNotesByPatient
 );
 
 /**

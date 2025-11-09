@@ -1,11 +1,77 @@
 import { Request, Response, NextFunction } from 'express';
 import patientService from '../services/patientService';
 import { logger } from '../config/logger';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import { emailService } from '../services/emailService';
+import { UserRole } from '@prisma/client';
 
 export class PatientController {
-  async createPatient(req: Request, res: Response, next: NextFunction) {
+  // Generate a secure random password
+  private generatePassword = (length: number = 12): string => {
+    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    let password = '';
+    const randomBytes = crypto.randomBytes(length);
+    
+    for (let i = 0; i < length; i++) {
+      password += charset[randomBytes[i] % charset.length];
+    }
+    
+    return password;
+  }
+
+  createPatient = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const patient = await patientService.createPatient(req.body);
+      const { email, cnic, fullName, fatherName, contactNumber, whatsappNumber, address, assignedDoctorId } = req.body;
+
+      // Generate a random secure password
+      const generatedPassword = this.generatePassword();
+      const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+      // Generate patient ID (e.g., PAT-2025-0001)
+      const year = new Date().getFullYear();
+      const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+      const patientId = `PAT-${year}-${randomNum}`;
+
+      // Prepare patient data
+      const patientData = {
+        user: {
+          create: {
+            email,
+            password: hashedPassword,
+            role: UserRole.PATIENT,
+          },
+        },
+        patientId,
+        cnic,
+        fullName,
+        fatherName,
+        contactNumber,
+        whatsappNumber: whatsappNumber || contactNumber,
+        address,
+        ...(assignedDoctorId && {
+          assignedDoctor: {
+            connect: { id: assignedDoctorId },
+          },
+        }),
+      };
+
+      const patient = await patientService.createPatient(patientData);
+
+      // Send welcome email with credentials (don't fail patient creation if email fails)
+      try {
+        await emailService.sendWelcomeEmail(
+          email,
+          fullName,
+          generatedPassword,
+          UserRole.PATIENT
+        );
+        logger.info(`Welcome email sent to patient: ${email}`);
+      } catch (emailError) {
+        logger.error(`Failed to send welcome email to ${email}:`, emailError);
+        // Continue - patient creation succeeded even if email failed
+      }
+
       res.status(201).json({
         success: true,
         data: patient,
@@ -16,7 +82,7 @@ export class PatientController {
     }
   }
 
-  async getPatient(req: Request, res: Response, next: NextFunction): Promise<void> {
+  getPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
       const patient = await patientService.getPatientById(id);
@@ -39,7 +105,7 @@ export class PatientController {
     }
   }
 
-  async getAllPatients(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  getAllPatients = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const patients = await patientService.getAllPatients();
       res.json({
@@ -52,7 +118,7 @@ export class PatientController {
     }
   }
 
-  async updatePatient(req: Request, res: Response, next: NextFunction) {
+  updatePatient = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const patient = await patientService.updatePatient(id, req.body);
@@ -67,7 +133,7 @@ export class PatientController {
     }
   }
 
-  async archivePatient(req: Request, res: Response, next: NextFunction) {
+  archivePatient = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const patient = await patientService.archivePatient(id);
@@ -83,7 +149,7 @@ export class PatientController {
     }
   }
 
-  async searchPatients(req: Request, res: Response, next: NextFunction): Promise<void> {
+  searchPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { q } = req.query;
       

@@ -10,56 +10,56 @@ router.use(authenticate);
 /**
  * @route   GET /api/patients/search
  * @desc    Search patients by name, email, CNIC, or patient ID
- * @access  Private (Doctor, Moderator, Admin)
+ * @access  Private (Doctor, Surgeon, Moderator, Admin)
  * @query   q - Search query string
  */
 router.get(
   '/search',
-  authorize(UserRole.DOCTOR, UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.DOCTOR, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.searchPatients
 );
 
 /**
  * @route   GET /api/patients
  * @desc    Get all patients (excluding archived)
- * @access  Private (Doctor, Moderator, Admin)
+ * @access  Private (Doctor, Surgeon, Moderator, Admin)
  */
 router.get(
   '/',
-  authorize(UserRole.DOCTOR, UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.DOCTOR, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.getAllPatients
 );
 
 /**
  * @route   GET /api/patients/:id
  * @desc    Get patient by ID
- * @access  Private (Patient can view own profile, Doctor/Moderator/Admin can view all)
+ * @access  Private (Patient can view own profile, Doctor/Surgeon/Moderator/Admin can view all)
  */
 router.get(
   '/:id',
-  authorize(UserRole.PATIENT, UserRole.DOCTOR, UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.PATIENT, UserRole.DOCTOR, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.getPatient
 );
 
 /**
  * @route   POST /api/patients
  * @desc    Create new patient
- * @access  Private (Moderator, Admin)
+ * @access  Private (Surgeon, Moderator, Admin)
  */
 router.post(
   '/',
-  authorize(UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.createPatient
 );
 
 /**
  * @route   PUT /api/patients/:id
  * @desc    Update patient information
- * @access  Private (Moderator, Admin)
+ * @access  Private (Surgeon, Moderator, Admin)
  */
 router.put(
   '/:id',
-  authorize(UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.updatePatient
 );
 

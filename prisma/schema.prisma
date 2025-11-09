@@ -13,6 +13,7 @@ enum UserRole {
   PATIENT
   DOCTOR
   MODERATOR
+  SURGEON
   ADMIN
 }
 
@@ -79,6 +80,8 @@ model User {
   id            String        @id @default(uuid())
   email         String        @unique
   password      String
+  name          String?
+  profileImage  String?
   role          UserRole
   isActive      Boolean       @default(true)
   createdAt     DateTime      @default(now())
@@ -88,6 +91,21 @@ model User {
   doctor        Doctor?
   moderator     Moderator?
   auditLogs     AuditLog[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id            String        @id @default(uuid())
+  token         String        @unique
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  isRevoked     Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([userId])
+  @@index([token])
 }
 
 model Patient {

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import surgeryService from '../services/surgeryService';
 import { logger } from '../config/logger';
 import { AuthRequest } from '../middlewares/auth';

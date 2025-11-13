@@ -5,13 +5,13 @@ import { AuthRequest } from '../middlewares/auth';
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
     try {
-      const { email, password, role } = req.body;
+      const { email, password, role, fullName, specialization, phoneNumber } = req.body;
       
       const ipAddress = req.ip || req.socket.remoteAddress;
       const userAgent = req.headers['user-agent'];
 
       const user = await authService.register(
-        { email, password, role },
+        { email, password, role, fullName, specialization, phoneNumber },
         ipAddress,
         userAgent
       );

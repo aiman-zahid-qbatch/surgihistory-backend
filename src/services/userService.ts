@@ -139,6 +139,18 @@ export class UserService {
         logger.info(`Doctor profile created for user: ${user.email}`);
       }
 
+      // Create Moderator profile for MODERATOR role
+      if (data.role === UserRole.MODERATOR) {
+        await prisma.moderator.create({
+          data: {
+            userId: user.id,
+            fullName: data.name || data.email.split('@')[0],
+            contactNumber: '', // Can be updated later
+          },
+        });
+        logger.info(`Moderator profile created for user: ${user.email}`);
+      }
+
       // Create Patient profile for PATIENT role
       if (data.role === UserRole.PATIENT) {
         // Generate a unique patient ID
@@ -298,6 +310,129 @@ export class UserService {
       return updatedUser;
     } catch (error) {
       logger.error('Error toggling user status:', error);
+      throw error;
+    }
+  }
+
+  async approveSurgeon(userId: string): Promise<Omit<User, 'password'>> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      if (user.role !== UserRole.SURGEON) {
+        throw new Error('User is not a surgeon');
+      }
+
+      if (user.isActive) {
+        throw new Error('Surgeon is already approved');
+      }
+
+      // Activate the surgeon account
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          isActive: true,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      // Send approval email
+      try {
+        await emailService.sendApprovalEmail(
+          updatedUser.email,
+          updatedUser.name || 'Surgeon'
+        );
+      } catch (emailError) {
+        logger.error('Failed to send approval email:', emailError);
+        // Don't throw error here, account is already approved
+      }
+
+      logger.info(`Surgeon approved: ${updatedUser.email}`);
+
+      return updatedUser;
+    } catch (error) {
+      logger.error('Error approving surgeon:', error);
+      throw error;
+    }
+  }
+
+  async rejectSurgeon(userId: string): Promise<void> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      if (user.role !== UserRole.SURGEON) {
+        throw new Error('User is not a surgeon');
+      }
+
+      if (user.isActive) {
+        throw new Error('Cannot reject an approved surgeon');
+      }
+
+      // Send rejection email before deleting
+      try {
+        await emailService.sendRejectionEmail(
+          user.email,
+          user.name || 'Surgeon'
+        );
+      } catch (emailError) {
+        logger.error('Failed to send rejection email:', emailError);
+      }
+
+      // Delete the user
+      await prisma.user.delete({
+        where: { id: userId },
+      });
+
+      logger.info(`Surgeon registration rejected and deleted: ${user.email}`);
+    } catch (error) {
+      logger.error('Error rejecting surgeon:', error);
+      throw error;
+    }
+  }
+
+  async getPendingSurgeons(): Promise<Omit<User, 'password'>[]> {
+    try {
+      const pendingSurgeons = await prisma.user.findMany({
+        where: {
+          role: UserRole.SURGEON,
+          isActive: false,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      return pendingSurgeons;
+    } catch (error) {
+      logger.error('Error fetching pending surgeons:', error);
       throw error;
     }
   }

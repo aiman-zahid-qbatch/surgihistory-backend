@@ -8,6 +8,8 @@ import privateNoteRoutes from './privateNote.routes';
 import patientUploadRoutes from './patientUpload.routes';
 import userRoutes from './user.routes';
 import profileRoutes from './profile.routes';
+import moderatorRoutes from './moderator.routes';
+import reminderRoutes from './reminder.routes';
 
 const router = Router();
 
@@ -21,5 +23,7 @@ router.use('/private-notes', privateNoteRoutes);
 router.use('/patient-uploads', patientUploadRoutes);
 router.use('/users', userRoutes);
 router.use('/profile', profileRoutes);
+router.use('/moderators', moderatorRoutes);
+router.use('/reminders', reminderRoutes);
 
 export default router;

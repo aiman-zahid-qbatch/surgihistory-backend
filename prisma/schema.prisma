@@ -124,6 +124,9 @@ model Patient {
   assignedDoctorId String?
   assignedDoctor   Doctor?     @relation("AssignedPatients", fields: [assignedDoctorId], references: [id])
   
+  assignedModeratorId String?
+  assignedModerator   Moderator? @relation("AssignedPatients", fields: [assignedModeratorId], references: [id])
+  
   createdById   String?
   createdBy     Doctor?       @relation("CreatedPatients", fields: [createdById], references: [id])
   
@@ -140,6 +143,7 @@ model Patient {
   
   @@index([cnic])
   @@index([assignedDoctorId])
+  @@index([assignedModeratorId])
   @@index([createdById])
   @@index([patientId])
   @@index([fullName])
@@ -179,6 +183,8 @@ model Moderator {
   fullName      String
   contactNumber String
   whatsappNumber String?
+  
+  assignedPatients Patient[]   @relation("AssignedPatients")
   
   canAddRecords Boolean       @default(true)
   canEditRecords Boolean      @default(false)

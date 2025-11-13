@@ -43,8 +43,11 @@ interface UpdatePatientData {
   fullName?: string;
   fatherName?: string;
   contactNumber?: string;
+  whatsappNumber?: string;
   address?: string;
+  cnic?: string;
   assignedDoctorId?: string;
+  assignedModeratorId?: string;
 }
 
 export class PatientService {
@@ -55,6 +58,7 @@ export class PatientService {
         include: {
           user: { select: { email: true, role: true } },
           assignedDoctor: { include: { user: true } },
+          createdBy: { include: { user: true } },
         },
       });
       logger.info(`Patient created: ${patient.id}`);
@@ -72,6 +76,7 @@ export class PatientService {
         include: {
           user: { select: { email: true, role: true } },
           assignedDoctor: { include: { user: true } },
+          createdBy: { include: { user: true } },
           surgeries: {
             where: { isArchived: false },
             orderBy: { surgeryDate: 'desc' },
@@ -97,7 +102,7 @@ export class PatientService {
     }
   }
 
-  async getAllPatients(createdById?: string): Promise<Patient[]> {
+  async getAllPatients(createdById?: string, assignedModeratorId?: string): Promise<Patient[]> {
     try {
       const whereClause: any = { isArchived: false };
       
@@ -106,11 +111,17 @@ export class PatientService {
         whereClause.createdById = createdById;
       }
 
+      // If assignedModeratorId is provided, filter by it (for moderators)
+      if (assignedModeratorId) {
+        whereClause.assignedModeratorId = assignedModeratorId;
+      }
+
       const patients = await prisma.patient.findMany({
         where: whereClause,
         include: {
           user: { select: { email: true, role: true } },
           assignedDoctor: { include: { user: true } },
+          createdBy: { include: { user: true } },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -129,6 +140,7 @@ export class PatientService {
         include: {
           user: { select: { email: true, role: true } },
           assignedDoctor: { include: { user: true } },
+          createdBy: { include: { user: true } },
         },
       });
       logger.info(`Patient updated: ${id}`);
@@ -171,6 +183,7 @@ export class PatientService {
         include: {
           user: { select: { email: true, role: true } },
           assignedDoctor: { include: { user: true } },
+          createdBy: { include: { user: true } },
         },
         orderBy: { createdAt: 'desc' },
       });

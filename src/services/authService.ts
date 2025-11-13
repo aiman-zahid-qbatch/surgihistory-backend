@@ -16,6 +16,7 @@ export enum UserRole {
   PATIENT = 'PATIENT',
   DOCTOR = 'DOCTOR',
   MODERATOR = 'MODERATOR',
+  SURGEON = 'SURGEON',
   ADMIN = 'ADMIN',
 }
 
@@ -44,6 +45,9 @@ interface RegisterData {
   email: string;
   password: string;
   role: UserRole;
+  fullName?: string;
+  specialization?: string;
+  phoneNumber?: string;
 }
 
 interface LoginResponse {
@@ -157,13 +161,31 @@ export class AuthService {
 
       const hashedPassword = await bcrypt.hash(data.password, 10);
 
+      // Surgeons need admin approval, so they start as inactive
+      const isActive = data.role === 'SURGEON' ? false : true;
+
       const user = await prisma.user.create({
         data: {
           email: data.email,
           password: hashedPassword,
           role: data.role,
+          name: data.fullName || null,
+          isActive: isActive,
         },
       }) as User;
+
+      // Create Doctor profile for SURGEON role
+      if (data.role === UserRole.SURGEON) {
+        await prisma.doctor.create({
+          data: {
+            userId: user.id,
+            fullName: data.fullName || data.email.split('@')[0],
+            contactNumber: data.phoneNumber || '',
+            specialization: data.specialization || 'Surgeon',
+          },
+        });
+        logger.info(`Doctor profile created for surgeon: ${user.email}`);
+      }
 
       await this.createAuditLog({
         userId: user.id,
@@ -215,20 +237,31 @@ export class AuthService {
       }
 
       if (!user.isActive) {
+        // Check if the user is a surgeon with pending approval
+        const isPendingApproval = user.role === UserRole.SURGEON;
+        
         await this.createAuditLog({
           userId: user.id,
           action: 'VIEW',
           entityType: 'auth',
           entityId: 'login_attempt',
-          description: 'Login attempt on deactivated account',
+          description: isPendingApproval 
+            ? 'Login attempt on pending approval account' 
+            : 'Login attempt on deactivated account',
           ipAddress,
           userAgent,
           requestMethod: 'POST',
           requestPath: '/api/auth/login',
           success: false,
-          errorMessage: 'Account is deactivated',
+          errorMessage: isPendingApproval 
+            ? 'Account pending approval' 
+            : 'Account is deactivated',
         });
-        throw new Error('Account is deactivated');
+        throw new Error(
+          isPendingApproval 
+            ? 'Your account is pending admin approval. You will receive an email once approved.' 
+            : 'Your account has been deactivated by admin. You are no longer a user of this system.'
+        );
       }
 
       const isPasswordValid = await bcrypt.compare(password, user.password);

@@ -164,6 +164,9 @@ export class FollowUpService {
               fileType: true,
             },
           },
+          reminders: {
+            orderBy: { scheduledFor: 'asc' },
+          },
         },
         orderBy: { followUpDate: 'desc' },
       });
@@ -171,6 +174,82 @@ export class FollowUpService {
       return followUps;
     } catch (error) {
       logger.error(`Error fetching follow-ups for doctor ${doctorId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all follow-ups for assigned patients (moderator view)
+   */
+  async getFollowUpsByModerator(moderatorId: string, status?: FollowUpStatus) {
+    try {
+      // First, get all patients assigned to this moderator
+      // Using type assertion to bypass Prisma type checking until regeneration
+      const assignedPatients = await prisma.patient.findMany({
+        where: {
+          ...(({ assignedModeratorId: moderatorId } as any)),
+          isArchived: false,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      const patientIds = assignedPatients.map(p => p.id);
+
+      // If no patients assigned, return empty array
+      if (patientIds.length === 0) {
+        return [];
+      }
+
+      // Then get follow-ups for those patients
+      const followUps = await prisma.followUp.findMany({
+        where: {
+          surgery: {
+            patientId: {
+              in: patientIds,
+            },
+          },
+          isArchived: false,
+          ...(status && { status }),
+        },
+        include: {
+          surgery: {
+            include: {
+              patient: {
+                select: {
+                  id: true,
+                  patientId: true,
+                  fullName: true,
+                  contactNumber: true,
+                },
+              },
+            },
+          },
+          doctor: {
+            select: {
+              id: true,
+              fullName: true,
+              specialization: true,
+            },
+          },
+          media: {
+            where: { isArchived: false },
+            select: {
+              id: true,
+              fileType: true,
+            },
+          },
+          reminders: {
+            orderBy: { scheduledFor: 'asc' },
+          },
+        },
+        orderBy: { followUpDate: 'desc' },
+      });
+
+      return followUps;
+    } catch (error) {
+      logger.error(`Error fetching follow-ups for moderator ${moderatorId}:`, error);
       throw error;
     }
   }

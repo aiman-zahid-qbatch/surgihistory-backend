@@ -1,11 +1,23 @@
 import { Router } from 'express';
 import patientController from '../controllers/patientController';
 import { authenticate, authorize, UserRole } from '../middlewares/auth';
+import { userController } from '../controllers/userController';
 
 const router = Router();
 
 // All patient routes require authentication
 router.use(authenticate);
+
+/**
+ * @route   GET /api/patients/moderators
+ * @desc    Get all moderators for patient assignment
+ * @access  Private (Doctor, Surgeon, Admin)
+ */
+router.get(
+  '/moderators',
+  authorize(UserRole.DOCTOR, UserRole.SURGEON, UserRole.ADMIN),
+  userController.getAllModerators.bind(userController)
+);
 
 /**
  * @route   GET /api/patients/search

@@ -217,6 +217,11 @@ export class AuthService {
     try {
       const user = await prisma.user.findUnique({
         where: { email },
+        include: {
+          patient: true,
+          doctor: true,
+          moderator: true,
+        },
       }) as User | null;
 
       if (!user) {
@@ -597,6 +602,11 @@ export class AuthService {
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
+        include: {
+          patient: true,
+          doctor: true,
+          moderator: true,
+        },
       }) as User | null;
 
       if (!user) {

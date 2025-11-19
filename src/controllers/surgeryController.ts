@@ -14,10 +14,39 @@ export class SurgeryController {
         return;
       }
 
-      const surgery = await surgeryService.createSurgery(req.body, req.user.id);
+      // Validate required fields
+      const {
+        patientId,
+        doctorId,
+        diagnosis,
+        briefHistory,
+        preOpFindings,
+        procedureName,
+        procedureDetails,
+        doctorRole,
+        surgeryDate,
+      } = req.body;
+
+      if (!patientId || !doctorId || !diagnosis || !briefHistory || !preOpFindings || 
+          !procedureName || !procedureDetails || !doctorRole || !surgeryDate) {
+        res.status(400).json({
+          success: false,
+          message: 'All required fields must be provided',
+        });
+        return;
+      }
+
+      const surgeryData = {
+        ...req.body,
+        createdBy: req.user.id,
+        surgeryDate: new Date(surgeryDate),
+      };
+
+      const surgery = await surgeryService.createSurgery(surgeryData);
       res.status(201).json({
         success: true,
         data: surgery,
+        message: 'Surgery record created successfully',
       });
     } catch (error) {
       logger.error('Error in createSurgery controller:', error);
@@ -80,12 +109,38 @@ export class SurgeryController {
 
   async updateSurgery(req: AuthRequest, res: Response, next: NextFunction) {
     try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
       const { id } = req.params;
-      const surgery = await surgeryService.updateSurgery(id, req.body);
+
+      // Check if user can edit this surgery
+      const canEdit = await surgeryService.canEditSurgery(id, req.user.id);
+      
+      if (!canEdit) {
+        res.status(403).json({
+          success: false,
+          message: 'You do not have permission to edit this surgery record',
+        });
+        return;
+      }
+
+      const updateData = {
+        ...req.body,
+        surgeryDate: req.body.surgeryDate ? new Date(req.body.surgeryDate) : undefined,
+      };
+
+      const surgery = await surgeryService.updateSurgery(id, updateData, req.user.id);
 
       res.json({
         success: true,
         data: surgery,
+        message: 'Surgery record updated successfully',
       });
     } catch (error) {
       logger.error('Error in updateSurgery controller:', error);

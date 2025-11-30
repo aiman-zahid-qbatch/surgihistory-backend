@@ -1,0 +1,10 @@
+node_modules/
+dist/
+logs/*.log
+.env
+uploads/
+*.lock
+.DS_Store
+coverage/
+.vscode/
+logs/*

@@ -1,0 +1,665 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PATIENT
+  MODERATOR
+  SURGEON
+  ADMIN
+}
+
+enum RecordVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum SurgeryRole {
+  PERFORMED
+  ASSISTED
+  SUPERVISED
+  OBSERVED
+}
+
+enum FollowUpStatus {
+  PENDING
+  COMPLETED
+  MISSED
+}
+
+enum MediaType {
+  IMAGE
+  PDF
+  AUDIO
+  VIDEO
+  DOCUMENT
+}
+
+enum ReminderChannel {
+  WHATSAPP
+  NOTIFICATION
+  EMAIL
+  SMS
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  VIEW
+  HIDE
+  ARCHIVE
+  DELETE
+  EXPORT
+  SHARE
+}
+
+enum NotificationType {
+  FOLLOW_UP_REMINDER
+  NEW_UPLOAD
+  DOCUMENT_UPLOADED
+  DOCUMENT_REQUESTED
+  RECORD_UPDATE
+  MISSED_APPOINTMENT
+  REVIEW_REQUEST
+  ASSIGNMENT_REQUEST
+  ASSIGNMENT_ACCEPTED
+  ASSIGNMENT_REJECTED
+  MODERATOR_CREATED
+  PATIENT_MEDIA_UPLOAD
+}
+
+enum AssignmentStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id            String        @id @default(uuid())
+  email         String        @unique
+  password      String
+  name          String?
+  profileImage  String?
+  role          UserRole
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  patient       Patient?
+  surgeon       Surgeon?
+  moderator     Moderator?
+  auditLogs     AuditLog[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id            String        @id @default(uuid())
+  token         String        @unique
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  isRevoked     Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([userId])
+  @@index([token])
+}
+
+model Patient {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  patientId     String        @unique // System-generated patient ID
+  cnic          String        @unique
+  fullName      String
+  fatherName    String
+  contactNumber String
+  whatsappNumber String?
+  address       String        @db.Text
+
+  assignedSurgeonId String?
+  assignedSurgeon   Surgeon?    @relation("AssignedPatients", fields: [assignedSurgeonId], references: [id])
+
+  // DEPRECATED: Kept for backward compatibility, use assignedModerators instead
+  assignedModeratorId String?
+  assignedModerator   Moderator? @relation("AssignedPatients", fields: [assignedModeratorId], references: [id])
+
+  // New many-to-many relationship for multiple moderators
+  assignedModerators PatientModerator[]
+
+  createdById   String?
+  createdBy     Surgeon?      @relation("CreatedPatients", fields: [createdById], references: [id])
+
+  surgeries     Surgery[]
+  uploads       PatientUpload[]
+  media         Media[]
+  notifications Notification[]
+  privateNotes  PrivateNote[]
+  documentRequests DocumentRequest[]
+
+  isArchived    Boolean       @default(false)
+  archivedAt    DateTime?
+  archivedBy    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([cnic])
+  @@index([assignedSurgeonId])
+  @@index([assignedModeratorId])
+  @@index([createdById])
+  @@index([patientId])
+  @@index([fullName])
+}
+
+// Join table for many-to-many relationship between Patient and Moderator
+model PatientModerator {
+  id          String            @id @default(uuid())
+  patientId   String
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  moderatorId String
+  moderator   Moderator         @relation("PatientModerators", fields: [moderatorId], references: [id], onDelete: Cascade)
+  status      AssignmentStatus  @default(PENDING)
+  assignedAt  DateTime          @default(now())
+  assignedBy  String?           // ID of who assigned this moderator
+  respondedAt DateTime?         // When moderator accepted/rejected
+
+  @@unique([patientId, moderatorId]) // Prevent duplicate assignments
+  @@index([patientId])
+  @@index([moderatorId])
+  @@index([status])
+  @@index([moderatorId, status])
+}
+
+model Surgeon {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName      String
+  specialization String?
+  contactNumber String
+  whatsappNumber String?
+
+  assignedPatients Patient[]   @relation("AssignedPatients")
+  createdPatients  Patient[]   @relation("CreatedPatients")
+  surgeries     Surgery[]
+  followUps     FollowUp[]
+  notifications Notification[]
+  documentRequests DocumentRequest[]
+
+  isArchived    Boolean       @default(false)
+  archivedAt    DateTime?
+  archivedBy    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([fullName])
+}
+
+model Moderator {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName      String
+  contactNumber String
+  whatsappNumber String?
+
+  // DEPRECATED: Kept for backward compatibility
+  assignedPatients Patient[]   @relation("AssignedPatients")
+
+  // New many-to-many relationship for multiple patients
+  assignedPatientsNew PatientModerator[] @relation("PatientModerators")
+
+  availability  ModeratorAvailability[]
+
+  canAddRecords Boolean       @default(true)
+  canEditRecords Boolean      @default(false)
+  canDeleteRecords Boolean    @default(false)
+
+  isArchived    Boolean       @default(false)
+  archivedAt    DateTime?
+  archivedBy    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([fullName])
+}
+
+model ModeratorAvailability {
+  id            String        @id @default(uuid())
+  moderatorId   String
+  moderator     Moderator     @relation(fields: [moderatorId], references: [id], onDelete: Cascade)
+
+  dayOfWeek     Int           // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startTime     String        // Format: "HH:MM" (24-hour format)
+  endTime       String        // Format: "HH:MM" (24-hour format)
+  isActive      Boolean       @default(true)
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([moderatorId])
+  @@index([dayOfWeek])
+  @@index([moderatorId, dayOfWeek])
+}
+
+model Surgery {
+  id              String          @id @default(uuid())
+  patientId       String
+  patient         Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  surgeonId       String
+  surgeon         Surgeon         @relation(fields: [surgeonId], references: [id])
+  
+  diagnosis       String
+  customDiagnosis String?         // For custom entries not in predefined list
+  briefHistory    String          @db.Text
+  preOpFindings   String          @db.Text
+  procedureName   String
+  customProcedure String?         // For custom procedures not in predefined list
+  procedureDetails String         @db.Text
+  surgeryRole     SurgeryRole
+  
+  surgeryDate     DateTime
+  surgeryTime     String?         // Store time separately if needed
+  
+  followUps       FollowUp[]
+  visibility      RecordVisibility @default(PUBLIC)
+  
+  // PDF Export Settings
+  allowPatientExport Boolean      @default(true)
+  
+  isArchived      Boolean         @default(false)
+  archivedAt      DateTime?
+  archivedBy      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  createdBy       String
+  lastModifiedBy  String?
+  
+  @@index([patientId])
+  @@index([surgeonId])
+  @@index([surgeryDate])
+  @@index([diagnosis])
+  @@index([procedureName])
+}
+
+model FollowUp {
+  id              String          @id @default(uuid())
+  surgeryId       String
+  surgery         Surgery         @relation(fields: [surgeryId], references: [id], onDelete: Cascade)
+
+  surgeonId       String
+  surgeon         Surgeon         @relation(fields: [surgeonId], references: [id])
+  
+  followUpDate    DateTime
+  scheduledTime   String?
+  description     String          @db.Text
+  observations    String?         @db.Text
+  status          FollowUpStatus  @default(PENDING)
+  
+  // Track updates from both sides
+  lastDoctorUpdate DateTime?
+  lastPatientUpdate DateTime?
+  
+  media           Media[]
+  privateNotes    PrivateNote[]
+  reminders       Reminder[]
+  documentRequests DocumentRequest[]
+  visibility      RecordVisibility @default(PUBLIC)
+
+  isArchived      Boolean         @default(false)
+  archivedAt      DateTime?
+  archivedBy      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  createdBy       String
+  lastModifiedBy  String?
+  
+  @@index([surgeryId])
+  @@index([surgeonId])
+  @@index([followUpDate])
+  @@index([status])
+}
+
+model Media {
+  id            String        @id @default(uuid())
+  followUpId    String?
+  followUp      FollowUp?     @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  
+  // Direct patient link for standalone uploads (when no followUp)
+  patientId     String?
+  patient       Patient?      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  fileName      String
+  originalName  String
+  fileType      MediaType
+  mimeType      String
+  fileUrl       String
+  thumbnailUrl  String?       // For images/videos
+  fileSize      Int
+  duration      Int?          // For audio/video in seconds
+  
+  // AI transcription for audio
+  hasTranscription Boolean    @default(false)
+  transcriptionText String?   @db.Text
+  
+  uploadedBy    String
+  uploadedByRole UserRole
+  uploadedByName String?      // Denormalized for quick access
+  
+  // Visibility control
+  visibility    RecordVisibility @default(PUBLIC)
+  includeInExport Boolean     @default(true)
+
+  // Link to document request if uploaded in response to a request
+  documentRequest DocumentRequest?
+
+  isArchived    Boolean       @default(false)
+  archivedAt    DateTime?
+  createdAt     DateTime      @default(now())
+
+  @@index([followUpId])
+  @@index([patientId])
+  @@index([uploadedBy])
+  @@index([fileType])
+  @@index([createdAt])
+}
+
+model PatientUpload {
+  id            String        @id @default(uuid())
+  patientId     String
+  patient       Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  fileName      String
+  originalName  String
+  fileType      MediaType
+  mimeType      String
+  fileUrl       String
+  thumbnailUrl  String?
+  fileSize      Int
+  description   String?       @db.Text
+  category      String?       // e.g., "lab_report", "xray", "prescription"
+  
+  // Review tracking
+  isReviewed    Boolean       @default(false)
+  reviewedBy    String?
+  reviewedByName String?
+  reviewedAt    DateTime?
+  reviewComment String?       @db.Text
+  
+  // Notification tracking
+  notificationSent Boolean    @default(false)
+  notificationReadAt DateTime?
+  
+  isArchived    Boolean       @default(false)
+  archivedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  
+  @@index([patientId])
+  @@index([isReviewed])
+  @@index([notificationSent])
+  @@index([createdAt])
+}
+
+enum DocumentRequestStatus {
+  PENDING
+  UPLOADED
+  REJECTED
+}
+
+model DocumentRequest {
+  id            String                @id @default(uuid())
+  patientId     String
+  patient       Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  surgeonId     String?
+  surgeon       Surgeon?              @relation(fields: [surgeonId], references: [id])
+
+  followUpId    String?
+  followUp      FollowUp?             @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+
+  title         String
+  description   String?               @db.Text
+  category      String?               // e.g., "lab_report", "xray", "prescription"
+  status        DocumentRequestStatus @default(PENDING)
+
+  // When patient uploads document in response
+  uploadedMediaId String?             @unique
+  uploadedMedia   Media?              @relation(fields: [uploadedMediaId], references: [id])
+
+  requestedAt   DateTime              @default(now())
+  uploadedAt    DateTime?
+  rejectedAt    DateTime?
+  rejectionReason String?             @db.Text
+
+  @@index([patientId])
+  @@index([surgeonId])
+  @@index([status])
+  @@index([followUpId])
+  @@index([requestedAt])
+}
+
+model PrivateNote {
+  id            String        @id @default(uuid())
+
+  patientId     String
+  patient       Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  followUpId    String?
+  followUp      FollowUp?     @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+
+  surgeryId     String?       // Can also attach to surgery directly
+  title         String?
+  content       String        @db.Text
+
+  // Creator information (moderator who created this note)
+  createdBy     String        // ID of the moderator who created this note
+  createdByRole UserRole      // Role of the creator (MODERATOR, SURGEON, etc.)
+  createdByName String        // Name of the creator for display
+
+  // Audio notes
+  audioUrl      String?
+  audioDuration Int?          // In seconds
+  hasTranscription Boolean    @default(false)
+  transcriptionText String?   @db.Text
+
+  // Attachments for private notes
+  attachments   Json?         // Array of {fileName, fileUrl, fileType}
+
+  isArchived    Boolean       @default(false)
+  archivedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([patientId])
+  @@index([followUpId])
+  @@index([surgeryId])
+  @@index([createdAt])
+  @@index([createdBy])
+}
+
+model Reminder {
+  id            String        @id @default(uuid())
+  
+  // What the reminder is about
+  entityType    String        // "follow_up", "surgery", "patient_upload"
+  entityId      String
+  followUpId    String?
+  followUp      FollowUp?     @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  
+  // Who receives the reminder
+  recipientId   String
+  recipientRole UserRole
+  recipientName String?
+  recipientPhone String?
+  
+  // Reminder details
+  title         String
+  message       String        @db.Text
+  scheduledFor  DateTime
+  sentAt        DateTime?
+  
+  // Configuration
+  channel       ReminderChannel
+  status        ReminderStatus  @default(PENDING)
+  
+  // Repeat settings
+  isRecurring   Boolean       @default(false)
+  recurringPattern String?    // e.g., "weekly", "monthly"
+  daysBefore    Int?          // Days before appointment
+  
+  // Tracking
+  attempts      Int           @default(0)
+  lastAttemptAt DateTime?
+  errorMessage  String?
+  
+  createdBy     String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([scheduledFor, status])
+  @@index([recipientId])
+  @@index([followUpId])
+  @@index([status])
+  @@index([channel])
+}
+
+model Notification {
+  id            String        @id @default(uuid())
+  
+  // Recipient
+  recipientId   String
+  recipientRole UserRole
+  patientId     String?
+  patient       Patient?      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  surgeonId     String?
+  surgeon       Surgeon?      @relation(fields: [surgeonId], references: [id], onDelete: Cascade)
+  
+  // Notification content
+  type          NotificationType
+  title         String
+  message       String        @db.Text
+  
+  // Related entity
+  entityType    String?       // "patient_upload", "follow_up", "surgery"
+  entityId      String?
+  
+  // Status
+  isRead        Boolean       @default(false)
+  readAt        DateTime?
+  
+  // Badge/Priority
+  priority      String        @default("normal") // "low", "normal", "high", "urgent"
+  showBadge     Boolean       @default(true)
+  badgeColor    String        @default("red") // "red", "green", "blue", "yellow"
+  
+  createdAt     DateTime      @default(now())
+  expiresAt     DateTime?
+  
+  @@index([recipientId, isRead])
+  @@index([patientId])
+  @@index([surgeonId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id            String        @id @default(uuid())
+  userId        String?
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  action        AuditAction
+  entityType    String        // "patient", "surgery", "followup", "media", etc.
+  entityId      String
+  
+  // Detailed change tracking
+  changes       Json?         // Before/after values
+  description   String?       @db.Text
+  
+  // Request metadata
+  ipAddress     String?
+  userAgent     String?
+  requestMethod String?
+  requestPath   String?
+  
+  // Result tracking
+  success       Boolean       @default(true)
+  errorMessage  String?
+  
+  createdAt     DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([success])
+}
+
+model PDFExport {
+  id            String        @id @default(uuid())
+  
+  // Who requested the export
+  requestedBy   String
+  requestedByRole UserRole
+  
+  // What was exported
+  patientId     String
+  surgeryIds    String[]      // Array of surgery IDs included
+  followUpIds   String[]      // Array of follow-up IDs included
+  
+  // Export configuration
+  includeConfig Json          // {diagnosis: true, images: false, privateNotes: false, etc.}
+  exportType    String        // "patient_copy", "doctor_copy", "full_report"
+  
+  // PDF details
+  fileName      String
+  fileUrl       String
+  fileSize      Int
+  
+  // Security
+  isPasswordProtected Boolean @default(false)
+  passwordHash  String?
+  expiresAt     DateTime?
+  downloadCount Int           @default(0)
+  maxDownloads  Int?
+  
+  createdAt     DateTime      @default(now())
+  
+  @@index([patientId])
+  @@index([requestedBy])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id            String        @id @default(uuid())
+  key           String        @unique
+  value         String        @db.Text
+  dataType      String        @default("string") // "string", "number", "boolean", "json"
+  category      String?       // "reminder", "notification", "export", "security"
+  description   String?
+  
+  updatedBy     String?
+  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime      @default(now())
+  
+  @@index([category])
+  @@index([key])
+}

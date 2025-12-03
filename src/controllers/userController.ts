@@ -2,6 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import { userService } from '../services/userService';
 import { logger } from '../config/logger';
 import { prisma } from '../config/database';
+import { AuditAction } from '@prisma/client';
+import { AuthRequest } from '../middlewares/auth';
+import { logAuditEvent } from '../middlewares/auditLog';
+import notificationService from '../services/notificationService';
 
 export class UserController {
   async getAllUsers(_req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -31,7 +35,7 @@ export class UserController {
     }
   }
 
-  async createUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email, name, role } = req.body;
 
@@ -48,6 +52,13 @@ export class UserController {
       }
 
       const user = await userService.createUser({ email, name, role });
+
+      // Log audit event for user creation
+      await logAuditEvent(req, AuditAction.CREATE, 'user', user.id, {
+        description: `Created user: ${email} with role ${role}`,
+        changes: { email, name, role },
+      });
+
       res.status(201).json(user);
     } catch (error: any) {
       logger.error('Error in createUser:', error);
@@ -59,12 +70,19 @@ export class UserController {
     }
   }
 
-  async updateUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const { email, name, role, isActive } = req.body;
 
       const user = await userService.updateUser(id, { email, name, role, isActive });
+
+      // Log audit event for user update
+      await logAuditEvent(req, AuditAction.UPDATE, 'user', id, {
+        description: `Updated user: ${user.email}`,
+        changes: { email, name, role, isActive },
+      });
+
       res.json(user);
     } catch (error: any) {
       logger.error('Error in updateUser:', error);
@@ -80,9 +98,15 @@ export class UserController {
     }
   }
 
-  async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async deleteUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
+
+      // Log audit event before deletion
+      await logAuditEvent(req, AuditAction.DELETE, 'user', id, {
+        description: `Deleted user with ID: ${id}`,
+      });
+
       await userService.deleteUser(id);
       res.status(204).send();
     } catch (error: any) {
@@ -99,10 +123,17 @@ export class UserController {
     }
   }
 
-  async toggleUserStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async toggleUserStatus(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const user = await userService.toggleUserStatus(id);
+
+      // Log audit event for status toggle
+      await logAuditEvent(req, AuditAction.UPDATE, 'user', id, {
+        description: `Toggled user status: ${user.email} is now ${user.isActive ? 'active' : 'inactive'}`,
+        changes: { isActive: user.isActive },
+      });
+
       res.json(user);
     } catch (error: any) {
       logger.error('Error in toggleUserStatus:', error);
@@ -128,10 +159,16 @@ export class UserController {
     }
   }
 
-  async approveSurgeon(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async approveSurgeon(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const user = await userService.approveSurgeon(id);
+
+      // Log audit event for surgeon approval
+      await logAuditEvent(req, AuditAction.UPDATE, 'surgeon', id, {
+        description: `Approved surgeon: ${user.email}`,
+      });
+
       res.json({ message: 'Surgeon approved successfully', user });
     } catch (error: any) {
       logger.error('Error in approveSurgeon:', error);
@@ -147,9 +184,15 @@ export class UserController {
     }
   }
 
-  async rejectSurgeon(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async rejectSurgeon(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
+
+      // Log audit event for surgeon rejection
+      await logAuditEvent(req, AuditAction.DELETE, 'surgeon', id, {
+        description: `Rejected surgeon registration with ID: ${id}`,
+      });
+
       await userService.rejectSurgeon(id);
       res.json({ message: 'Surgeon registration rejected successfully' });
     } catch (error: any) {
@@ -167,7 +210,7 @@ export class UserController {
   }
 
   // Surgeon creates a moderator
-  async createModeratorBySurgeon(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async createModeratorBySurgeon(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email, name } = req.body;
 
@@ -198,6 +241,36 @@ export class UserController {
         name: name || null, 
         role: 'MODERATOR' 
       });
+
+      // Get surgeon name for notification
+      let surgeonName = 'A surgeon';
+      if (req.user) {
+        const surgeon = await prisma.surgeon.findUnique({
+          where: { userId: req.user.id },
+          select: { fullName: true },
+        });
+        if (surgeon) {
+          surgeonName = surgeon.fullName;
+        }
+      }
+
+      // Fetch the moderator profile to get the moderator ID
+      const moderatorProfile = await prisma.moderator.findUnique({
+        where: { userId: moderator.id },
+        select: { id: true },
+      });
+
+      // Send welcome notification to the new moderator
+      if (moderatorProfile?.id) {
+        try {
+          await notificationService.notifyModeratorCreated(
+            moderatorProfile.id,
+            surgeonName
+          );
+        } catch (notifError) {
+          logger.error('Error sending moderator welcome notification:', notifError);
+        }
+      }
 
       res.status(201).json({
         message: 'Moderator created successfully and email sent with credentials',

@@ -4,9 +4,10 @@ import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { emailService } from '../services/emailService';
-import { UserRole } from '@prisma/client';
+import { UserRole, AuditAction } from '@prisma/client';
 import { AuthRequest } from '../middlewares/auth';
 import { prisma } from '../config/database';
+import { logAuditEvent } from '../middlewares/auditLog';
 
 export class PatientController {
   // Generate a secure random password
@@ -32,21 +33,33 @@ export class PatientController {
         return;
       }
 
-      // Get doctor ID from user ID
-      const doctor = await prisma.doctor.findUnique({
-        where: { userId: req.user.id },
-        select: { id: true },
-      });
+      // Get surgeon ID from user ID (only for surgeons, not for admin)
+      let surgeonId: string | null = null;
+      
+      if (req.user.role === UserRole.SURGEON) {
+        const surgeon = await prisma.surgeon.findUnique({
+          where: { userId: req.user.id },
+          select: { id: true },
+        });
 
-      if (!doctor) {
-        res.status(404).json({
+        if (!surgeon) {
+          res.status(404).json({
+            success: false,
+            message: 'Surgeon profile not found',
+          });
+          return;
+        }
+        surgeonId = surgeon.id;
+      } else if (req.user.role !== UserRole.ADMIN) {
+        // Only surgeons and admins can create patients
+        res.status(403).json({
           success: false,
-          message: 'Doctor profile not found',
+          message: 'Only surgeons and administrators can create patients',
         });
         return;
       }
 
-      const { email, cnic, fullName, fatherName, contactNumber, whatsappNumber, address, assignedDoctorId, assignedModeratorId } = req.body;
+      const { email, cnic, fullName, fatherName, contactNumber, whatsappNumber, address, assignedDoctorId, assignedModeratorId: _assignedModeratorId, assignedModeratorIds } = req.body;
 
       // Validation: Email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -146,7 +159,7 @@ export class PatientController {
       const patientId = `PAT-${year}-${randomNum}`;
 
       // Prepare patient data
-      const patientData = {
+      const patientData: any = {
         user: {
           create: {
             email,
@@ -161,22 +174,25 @@ export class PatientController {
         contactNumber,
         whatsappNumber: whatsappNumber || contactNumber,
         address,
-        createdBy: {
-          connect: { id: doctor.id },
-        },
         ...(assignedDoctorId && {
-          assignedDoctor: {
+          assignedSurgeon: {
             connect: { id: assignedDoctorId },
-          },
-        }),
-        ...(assignedModeratorId && {
-          assignedModerator: {
-            connect: { id: assignedModeratorId },
           },
         }),
       };
 
-      const patient = await patientService.createPatient(patientData);
+      // Only connect createdBy if surgeon exists
+      if (surgeonId) {
+        patientData.createdBy = {
+          connect: { id: surgeonId },
+        };
+      }
+
+      const patient = await patientService.createPatient({
+        ...patientData,
+        assignedModeratorIds: assignedModeratorIds || (_assignedModeratorId ? [_assignedModeratorId] : undefined),
+        assignedBy: req.user.id,
+      });
 
       // Send welcome email with credentials (don't fail patient creation if email fails)
       try {
@@ -191,6 +207,17 @@ export class PatientController {
         logger.error(`Failed to send welcome email to ${email}:`, emailError);
         // Continue - patient creation succeeded even if email failed
       }
+
+      // Log audit event for patient creation
+      await logAuditEvent(req, AuditAction.CREATE, 'patient', patient.id, {
+        description: `Created patient: ${fullName}`,
+        changes: {
+          patientId,
+          fullName,
+          cnic,
+          email,
+        },
+      });
 
       res.status(201).json({
         success: true,
@@ -235,16 +262,16 @@ export class PatientController {
         return;
       }
 
-      // Get doctor ID for surgeons/doctors to filter their patients
+      // Get surgeon ID for surgeons to filter their patients
       let createdById: string | undefined;
       let assignedModeratorId: string | undefined;
       
-      if (req.user.role === UserRole.SURGEON || req.user.role === UserRole.DOCTOR) {
-        const doctor = await prisma.doctor.findUnique({
+      if (req.user.role === UserRole.SURGEON) {
+        const surgeon = await prisma.surgeon.findUnique({
           where: { userId: req.user.id },
           select: { id: true },
         });
-        createdById = doctor?.id;
+        createdById = surgeon?.id;
       }
 
       // Get moderator ID to filter patients assigned to them
@@ -270,7 +297,7 @@ export class PatientController {
   updatePatient = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { fullName, fatherName, contactNumber, whatsappNumber, cnic } = req.body;
+      const { fullName, fatherName, contactNumber, whatsappNumber, cnic, assignedModeratorIds, assignedModeratorId: _assignedModeratorId } = req.body;
 
       // Validation: Contact number (only numbers, +, spaces, hyphens)
       if (contactNumber) {
@@ -347,7 +374,17 @@ export class PatientController {
         }
       }
 
-      const patient = await patientService.updatePatient(id, req.body);
+      const patient = await patientService.updatePatient(id, {
+        ...req.body,
+        assignedModeratorIds: assignedModeratorIds || (_assignedModeratorId ? [_assignedModeratorId] : undefined),
+        assignedBy: req.user?.id,
+      });
+
+      // Log audit event for patient update
+      await logAuditEvent(req, AuditAction.UPDATE, 'patient', id, {
+        description: `Updated patient: ${patient.fullName}`,
+        changes: req.body,
+      });
 
       res.json({
         success: true,
@@ -363,6 +400,11 @@ export class PatientController {
     try {
       const { id } = req.params;
       const patient = await patientService.archivePatient(id);
+
+      // Log audit event for patient archive
+      await logAuditEvent(req, AuditAction.ARCHIVE, 'patient', id, {
+        description: `Archived patient: ${patient.fullName}`,
+      });
 
       res.json({
         success: true,
@@ -394,6 +436,66 @@ export class PatientController {
       });
     } catch (error) {
       logger.error('Error in searchPatients controller:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get patients assigned to the current moderator via PatientModerator join table
+   */
+  getModeratorAssignedPatients = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
+      // Get moderator profile from user ID
+      const moderator = await prisma.moderator.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true },
+      });
+
+      if (!moderator) {
+        res.status(404).json({
+          success: false,
+          message: 'Moderator profile not found',
+        });
+        return;
+      }
+
+      // Get assigned patients via PatientModerator join table (only ACCEPTED status)
+      const assignedPatients = await prisma.patientModerator.findMany({
+        where: {
+          moderatorId: moderator.id,
+          status: 'ACCEPTED',
+        },
+        include: {
+          patient: {
+            include: {
+              user: { select: { email: true, role: true } },
+              assignedSurgeon: { include: { user: true } },
+              createdBy: { include: { user: true } },
+            },
+          },
+        },
+        orderBy: { assignedAt: 'desc' },
+      });
+
+      // Extract patient data from the join table results
+      const patients = assignedPatients
+        .filter(ap => !ap.patient.isArchived)
+        .map(ap => ap.patient);
+
+      res.json({
+        success: true,
+        data: patients,
+      });
+    } catch (error) {
+      logger.error('Error in getModeratorAssignedPatients controller:', error);
       next(error);
     }
   }

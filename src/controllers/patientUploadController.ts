@@ -1,8 +1,10 @@
 import { Response, NextFunction } from 'express';
 import patientUploadService from '../services/patientUploadService';
+import notificationService from '../services/notificationService';
 import { logger } from '../config/logger';
 import { AuthRequest, UserRole } from '../middlewares/auth';
 import { MediaType } from '@prisma/client';
+import { prisma } from '../config/database';
 import path from 'path';
 
 export class PatientUploadController {
@@ -72,6 +74,37 @@ export class PatientUploadController {
         category,
       });
 
+      // Notify assigned moderators when patient uploads media
+      try {
+        // Get patient info and their assigned moderators
+        const patient = await prisma.patient.findUnique({
+          where: { id: patientId },
+          select: {
+            fullName: true,
+            assignedModerators: {
+              where: { status: 'ACCEPTED' },
+              select: { moderatorId: true },
+            },
+          },
+        });
+
+        if (patient && patient.assignedModerators.length > 0) {
+          // Notify each assigned moderator
+          for (const assignment of patient.assignedModerators) {
+            await notificationService.notifyModeratorPatientUpload(
+              assignment.moderatorId,
+              patient.fullName,
+              patientId,
+              upload.id,
+              req.file.originalname
+            );
+          }
+        }
+      } catch (notifError) {
+        logger.error('Error sending upload notification to moderators:', notifError);
+        // Don't fail the upload if notification fails
+      }
+
       res.status(201).json({
         success: true,
         data: upload,
@@ -118,11 +151,12 @@ export class PatientUploadController {
   }
 
   /**
-   * Get uploads for a patient
+   * Get uploads for a patient with pagination
    */
   async getUploadsByPatient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { patientId } = req.params;
+      const { page = '1', limit = '50', category, sortBy = 'uploadedAt', order = 'desc' } = req.query;
 
       // Patients can only view their own uploads
       if (req.user?.role === UserRole.PATIENT && patientId !== req.user.id) {
@@ -133,11 +167,32 @@ export class PatientUploadController {
         return;
       }
 
-      const uploads = await patientUploadService.getPatientUploadsByPatient(patientId);
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      const uploads = await patientUploadService.getPatientUploadsByPatient(
+        patientId,
+        {
+          skip,
+          take: limitNum,
+          category: category as string,
+          sortBy: sortBy as string,
+          order: order as 'asc' | 'desc',
+        }
+      );
+
+      const totalCount = await patientUploadService.getPatientUploadsCount(patientId, category as string);
 
       res.json({
         success: true,
         data: uploads,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limitNum),
+        },
       });
     } catch (error) {
       logger.error('Error in getUploadsByPatient controller:', error);

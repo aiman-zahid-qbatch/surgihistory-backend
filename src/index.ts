@@ -3,16 +3,19 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import http from 'http';
 import { logger } from './config/logger';
 import { errorHandler } from './middlewares/errorHandler';
 import routes from './routes';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import { connectRedis, disconnectRedis } from './config/redis';
 import { authService } from './services/authService';
+import { initializeSocket } from './config/socket';
 
 dotenv.config();
 
 const app = express();
+const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Middlewares
@@ -57,7 +60,10 @@ const startServer = async () => {
     
     // Connect to Redis
     await connectRedis();
-    
+
+    // Initialize Socket.IO
+    initializeSocket(httpServer);
+
     // Schedule cleanup of expired tokens (runs every hour)
     setInterval(async () => {
       try {
@@ -66,13 +72,14 @@ const startServer = async () => {
         logger.error('Error in token cleanup task:', error);
       }
     }, 60 * 60 * 1000); // 1 hour
-    
+
     // Run initial cleanup
     await authService.cleanupExpiredTokens();
-    
+
     // Start listening
-    app.listen(PORT, () => {
+    httpServer.listen(PORT, () => {
       logger.info(`Server is running on port ${PORT}`);
+      logger.info(`Socket.IO enabled for real-time notifications`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {

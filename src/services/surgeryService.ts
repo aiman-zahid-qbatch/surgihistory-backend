@@ -1,22 +1,11 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-
-export enum DoctorRole {
-  PERFORMED = 'PERFORMED',
-  ASSISTED = 'ASSISTED',
-  SUPERVISED = 'SUPERVISED',
-  OBSERVED = 'OBSERVED',
-}
-
-export enum RecordVisibility {
-  PRIVATE = 'PRIVATE',
-  PUBLIC = 'PUBLIC',
-}
+import { SurgeryRole, RecordVisibility } from '@prisma/client';
 
 interface Surgery {
   id: string;
   patientId: string;
-  doctorId: string;
+  surgeonId: string;
   diagnosis: string;
   customDiagnosis?: string;
   briefHistory: string;
@@ -24,7 +13,7 @@ interface Surgery {
   procedureName: string;
   customProcedure?: string;
   procedureDetails: string;
-  doctorRole: DoctorRole;
+  surgeryRole: SurgeryRole;
   surgeryDate: Date;
   surgeryTime?: string;
   visibility: RecordVisibility;
@@ -37,7 +26,7 @@ interface Surgery {
 
 interface CreateSurgeryData {
   patientId: string;
-  doctorId: string;
+  surgeonId: string;
   diagnosis: string;
   customDiagnosis?: string;
   briefHistory: string;
@@ -45,7 +34,7 @@ interface CreateSurgeryData {
   procedureName: string;
   customProcedure?: string;
   procedureDetails: string;
-  doctorRole: DoctorRole;
+  surgeryRole: SurgeryRole;
   surgeryDate: Date;
   surgeryTime?: string;
   visibility?: RecordVisibility;
@@ -60,7 +49,7 @@ interface UpdateSurgeryData {
   procedureName?: string;
   customProcedure?: string;
   procedureDetails?: string;
-  doctorRole?: DoctorRole;
+  surgeryRole?: SurgeryRole;
   surgeryDate?: Date;
   surgeryTime?: string;
   visibility?: RecordVisibility;
@@ -73,7 +62,7 @@ export class SurgeryService {
       const surgery = await prisma.surgery.create({
         data: {
           patient: { connect: { id: data.patientId } },
-          doctor: { connect: { id: data.doctorId } },
+          surgeon: { connect: { id: data.surgeonId } },
           diagnosis: data.diagnosis,
           customDiagnosis: data.customDiagnosis,
           briefHistory: data.briefHistory,
@@ -81,7 +70,7 @@ export class SurgeryService {
           procedureName: data.procedureName,
           customProcedure: data.customProcedure,
           procedureDetails: data.procedureDetails,
-          doctorRole: data.doctorRole,
+          surgeryRole: data.surgeryRole,
           surgeryDate: data.surgeryDate,
           surgeryTime: data.surgeryTime,
           visibility: data.visibility || RecordVisibility.PUBLIC,
@@ -93,7 +82,7 @@ export class SurgeryService {
               user: { select: { email: true, role: true, name: true } },
             },
           },
-          doctor: {
+          surgeon: {
             include: {
               user: { select: { email: true, role: true, name: true } },
             },
@@ -118,7 +107,7 @@ export class SurgeryService {
               user: { select: { email: true, role: true } },
             },
           },
-          doctor: {
+          surgeon: {
             include: {
               user: { select: { email: true, role: true } },
             },
@@ -139,38 +128,133 @@ export class SurgeryService {
     }
   }
 
-  async getSurgeriesByPatient(patientId: string): Promise<Surgery[]> {
+  async getSurgeriesByPatient(patientId: string, options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+  }): Promise<{ data: Surgery[]; pagination: { page: number; limit: number; total: number; totalPages: number } }> {
     try {
-      const surgeries = await prisma.surgery.findMany({
-        where: {
-          patientId,
-          isArchived: false,
-        },
-        include: {
-          doctor: {
-            include: {
-              user: { select: { email: true, role: true } },
+      const page = options?.page || 1;
+      const limit = options?.limit || 20;
+      const skip = (page - 1) * limit;
+      const sortBy = options?.sortBy || 'surgeryDate';
+      const order = options?.order || 'desc';
+
+      const whereClause: any = {
+        patientId,
+        isArchived: false,
+      };
+
+      if (options?.search) {
+        whereClause.OR = [
+          { diagnosis: { contains: options.search, mode: 'insensitive' } },
+          { procedureName: { contains: options.search, mode: 'insensitive' } },
+        ];
+      }
+
+      const [surgeries, total] = await Promise.all([
+        prisma.surgery.findMany({
+          where: whereClause,
+          include: {
+            surgeon: {
+              include: {
+                user: { select: { email: true, role: true } },
+              },
+            },
+            _count: {
+              select: { followUps: { where: { isArchived: false } } },
             },
           },
-          followUps: {
-            where: { isArchived: false },
-            orderBy: { followUpDate: 'desc' },
-          },
+          orderBy: { [sortBy]: order },
+          skip,
+          take: limit,
+        }),
+        prisma.surgery.count({ where: whereClause }),
+      ]);
+
+      return {
+        data: surgeries as unknown as Surgery[],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
         },
-        orderBy: { surgeryDate: 'desc' },
-      });
-      return surgeries as unknown as Surgery[];
+      };
     } catch (error) {
       logger.error('Error fetching surgeries by patient:', error);
       throw error;
     }
   }
 
-  async getSurgeriesByDoctor(doctorId: string): Promise<Surgery[]> {
+  async getSurgeriesBySurgeon(surgeonId: string, options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+  }): Promise<{ data: Surgery[]; pagination: { page: number; limit: number; total: number; totalPages: number } }> {
+    try {
+      const page = options?.page || 1;
+      const limit = options?.limit || 20;
+      const skip = (page - 1) * limit;
+      const sortBy = options?.sortBy || 'surgeryDate';
+      const order = options?.order || 'desc';
+
+      const whereClause: any = {
+        surgeonId,
+        isArchived: false,
+      };
+
+      if (options?.search) {
+        whereClause.OR = [
+          { diagnosis: { contains: options.search, mode: 'insensitive' } },
+          { procedureName: { contains: options.search, mode: 'insensitive' } },
+          { patient: { fullName: { contains: options.search, mode: 'insensitive' } } },
+        ];
+      }
+
+      const [surgeries, total] = await Promise.all([
+        prisma.surgery.findMany({
+          where: whereClause,
+          include: {
+            patient: {
+              include: {
+                user: { select: { email: true, role: true } },
+              },
+            },
+            _count: {
+              select: { followUps: { where: { isArchived: false } } },
+            },
+          },
+          orderBy: { [sortBy]: order },
+          skip,
+          take: limit,
+        }),
+        prisma.surgery.count({ where: whereClause }),
+      ]);
+
+      return {
+        data: surgeries as unknown as Surgery[],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      logger.error('Error fetching surgeries by doctor:', error);
+      throw error;
+    }
+  }
+
+  async getAllSurgeries(): Promise<Surgery[]> {
     try {
       const surgeries = await prisma.surgery.findMany({
         where: {
-          doctorId,
           isArchived: false,
         },
         include: {
@@ -179,6 +263,11 @@ export class SurgeryService {
               user: { select: { email: true, role: true } },
             },
           },
+          surgeon: {
+            include: {
+              user: { select: { email: true, role: true } },
+            },
+          },
           followUps: {
             where: { isArchived: false },
           },
@@ -187,7 +276,7 @@ export class SurgeryService {
       });
       return surgeries as unknown as Surgery[];
     } catch (error) {
-      logger.error('Error fetching surgeries by doctor:', error);
+      logger.error('Error fetching all surgeries:', error);
       throw error;
     }
   }
@@ -200,7 +289,7 @@ export class SurgeryService {
         include: {
           patient: {
             include: {
-              assignedDoctor: true,
+              assignedSurgeon: true,
             },
           },
         },
@@ -222,7 +311,7 @@ export class SurgeryService {
               user: { select: { email: true, role: true, name: true } },
             },
           },
-          doctor: {
+          surgeon: {
             include: {
               user: { select: { email: true, role: true, name: true } },
             },
@@ -237,6 +326,20 @@ export class SurgeryService {
     }
   }
 
+  // Get surgeon profile by user ID
+  async getSurgeonByUserId(userId: string): Promise<{ id: string } | null> {
+    try {
+      const surgeon = await prisma.surgeon.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      return surgeon;
+    } catch (error) {
+      logger.error('Error getting surgeon by user ID:', error);
+      return null;
+    }
+  }
+
   // Check if user can edit surgery (creator or assigned moderator)
   async canEditSurgery(surgeryId: string, userId: string): Promise<boolean> {
     try {
@@ -245,7 +348,7 @@ export class SurgeryService {
         include: {
           patient: {
             include: {
-              assignedDoctor: true,
+              assignedSurgeon: true,
             },
           },
         },
@@ -260,13 +363,13 @@ export class SurgeryService {
         return true;
       }
 
-      // Assigned moderator/doctor can edit
-      if (surgery.patient.assignedDoctorId) {
-        const assignedDoctor = await prisma.doctor.findUnique({
-          where: { id: surgery.patient.assignedDoctorId },
+      // Assigned surgeon can edit
+      if (surgery.patient.assignedSurgeonId) {
+        const assignedSurgeon = await prisma.surgeon.findUnique({
+          where: { id: surgery.patient.assignedSurgeonId },
         });
-        
-        if (assignedDoctor && assignedDoctor.userId === userId) {
+
+        if (assignedSurgeon && assignedSurgeon.userId === userId) {
           return true;
         }
       }
@@ -312,7 +415,7 @@ export class SurgeryService {
               user: { select: { email: true, role: true } },
             },
           },
-          doctor: {
+          surgeon: {
             include: {
               user: { select: { email: true, role: true } },
             },

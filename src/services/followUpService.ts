@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 interface CreateFollowUpData {
   surgeryId: string;
-  doctorId: string;
+  surgeonId: string;
   followUpDate: Date | string;
   scheduledTime?: string;
   description: string;
@@ -34,7 +34,7 @@ export class FollowUpService {
       const followUp = await prisma.followUp.create({
         data: {
           surgeryId: data.surgeryId,
-          doctorId: data.doctorId,
+          surgeonId: data.surgeonId,
           followUpDate: new Date(data.followUpDate),
           scheduledTime: data.scheduledTime,
           description: data.description,
@@ -50,7 +50,7 @@ export class FollowUpService {
               patient: true,
             },
           },
-          doctor: true,
+          surgeon: true,
           media: true,
         },
       });
@@ -79,7 +79,7 @@ export class FollowUpService {
               patient: true,
             },
           },
-          doctor: true,
+          surgeon: true,
           media: {
             where: { isArchived: false },
             orderBy: { createdAt: 'desc' },
@@ -111,7 +111,12 @@ export class FollowUpService {
           isArchived: false,
         },
         include: {
-          doctor: true,
+          surgery: {
+            include: {
+              patient: true,
+            },
+          },
+          surgeon: true,
           media: {
             where: { isArchived: false },
             select: {
@@ -134,46 +139,81 @@ export class FollowUpService {
   }
 
   /**
-   * Get all follow-ups for a doctor
+   * Get all follow-ups for a surgeon
    */
-  async getFollowUpsByDoctor(doctorId: string, status?: FollowUpStatus) {
+  async getFollowUpsBySurgeon(surgeonId: string, status?: FollowUpStatus, options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+  }) {
     try {
-      const followUps = await prisma.followUp.findMany({
-        where: {
-          doctorId,
-          isArchived: false,
-          ...(status && { status }),
-        },
-        include: {
-          surgery: {
-            include: {
-              patient: {
-                select: {
-                  id: true,
-                  patientId: true,
-                  fullName: true,
-                  contactNumber: true,
+      const page = options?.page || 1;
+      const limit = options?.limit || 20;
+      const skip = (page - 1) * limit;
+      const sortBy = options?.sortBy || 'followUpDate';
+      const order = options?.order || 'desc';
+
+      const whereClause: any = {
+        surgeonId,
+        isArchived: false,
+        ...(status && { status }),
+      };
+
+      if (options?.search) {
+        whereClause.OR = [
+          { description: { contains: options.search, mode: 'insensitive' } },
+          { observations: { contains: options.search, mode: 'insensitive' } },
+          { surgery: { patient: { fullName: { contains: options.search, mode: 'insensitive' } } } },
+        ];
+      }
+
+      const [followUps, total] = await Promise.all([
+        prisma.followUp.findMany({
+          where: whereClause,
+          include: {
+            surgery: {
+              include: {
+                patient: {
+                  select: {
+                    id: true,
+                    patientId: true,
+                    fullName: true,
+                    contactNumber: true,
+                  },
                 },
               },
             },
-          },
-          media: {
-            where: { isArchived: false },
-            select: {
-              id: true,
-              fileType: true,
+            media: {
+              where: { isArchived: false },
+              select: {
+                id: true,
+                fileType: true,
+              },
+            },
+            reminders: {
+              orderBy: { scheduledFor: 'asc' },
             },
           },
-          reminders: {
-            orderBy: { scheduledFor: 'asc' },
-          },
-        },
-        orderBy: { followUpDate: 'desc' },
-      });
+          orderBy: { [sortBy]: order },
+          skip,
+          take: limit,
+        }),
+        prisma.followUp.count({ where: whereClause }),
+      ]);
 
-      return followUps;
+      return {
+        data: followUps,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
     } catch (error) {
-      logger.error(`Error fetching follow-ups for doctor ${doctorId}:`, error);
+      logger.error(`Error fetching follow-ups for surgeon ${surgeonId}:`, error);
       throw error;
     }
   }
@@ -181,73 +221,114 @@ export class FollowUpService {
   /**
    * Get all follow-ups for assigned patients (moderator view)
    */
-  async getFollowUpsByModerator(moderatorId: string, status?: FollowUpStatus) {
+  async getFollowUpsByModerator(moderatorId: string, status?: FollowUpStatus, options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+  }) {
     try {
-      // First, get all patients assigned to this moderator
-      // Using type assertion to bypass Prisma type checking until regeneration
-      const assignedPatients = await prisma.patient.findMany({
+      const page = options?.page || 1;
+      const limit = options?.limit || 20;
+      const skip = (page - 1) * limit;
+      const sortBy = options?.sortBy || 'followUpDate';
+      const order = options?.order || 'desc';
+
+      // First, get all patients assigned to this moderator via PatientModerator join table
+      const assignedPatients = await prisma.patientModerator.findMany({
         where: {
-          ...(({ assignedModeratorId: moderatorId } as any)),
-          isArchived: false,
+          moderatorId,
+          status: 'ACCEPTED', // Only accepted assignments
         },
         select: {
-          id: true,
+          patientId: true,
         },
       });
 
-      const patientIds = assignedPatients.map(p => p.id);
+      const patientIds = assignedPatients.map(p => p.patientId);
 
-      // If no patients assigned, return empty array
+      // If no patients assigned, return empty result
       if (patientIds.length === 0) {
-        return [];
+        return {
+          data: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+        };
       }
 
-      // Then get follow-ups for those patients
-      const followUps = await prisma.followUp.findMany({
-        where: {
-          surgery: {
-            patientId: {
-              in: patientIds,
-            },
+      const whereClause: any = {
+        surgery: {
+          patientId: {
+            in: patientIds,
           },
-          isArchived: false,
-          ...(status && { status }),
         },
-        include: {
-          surgery: {
-            include: {
-              patient: {
-                select: {
-                  id: true,
-                  patientId: true,
-                  fullName: true,
-                  contactNumber: true,
+        isArchived: false,
+        ...(status && { status }),
+      };
+
+      if (options?.search) {
+        whereClause.OR = [
+          { description: { contains: options.search, mode: 'insensitive' } },
+          { observations: { contains: options.search, mode: 'insensitive' } },
+          { surgery: { patient: { fullName: { contains: options.search, mode: 'insensitive' } } } },
+        ];
+      }
+
+      const [followUps, total] = await Promise.all([
+        prisma.followUp.findMany({
+          where: whereClause,
+          include: {
+            surgery: {
+              include: {
+                patient: {
+                  select: {
+                    id: true,
+                    patientId: true,
+                    fullName: true,
+                    contactNumber: true,
+                  },
                 },
               },
             },
-          },
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-              specialization: true,
+            surgeon: {
+              select: {
+                id: true,
+                fullName: true,
+                specialization: true,
+              },
+            },
+            media: {
+              where: { isArchived: false },
+              select: {
+                id: true,
+                fileType: true,
+              },
+            },
+            reminders: {
+              orderBy: { scheduledFor: 'asc' },
             },
           },
-          media: {
-            where: { isArchived: false },
-            select: {
-              id: true,
-              fileType: true,
-            },
-          },
-          reminders: {
-            orderBy: { scheduledFor: 'asc' },
-          },
-        },
-        orderBy: { followUpDate: 'desc' },
-      });
+          orderBy: { [sortBy]: order },
+          skip,
+          take: limit,
+        }),
+        prisma.followUp.count({ where: whereClause }),
+      ]);
 
-      return followUps;
+      return {
+        data: followUps,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
     } catch (error) {
       logger.error(`Error fetching follow-ups for moderator ${moderatorId}:`, error);
       throw error;
@@ -257,26 +338,108 @@ export class FollowUpService {
   /**
    * Get all follow-ups for a patient
    */
-  async getFollowUpsByPatient(patientId: string) {
+  async getFollowUpsByPatient(patientId: string, options?: {
+    page?: number;
+    limit?: number;
+    status?: FollowUpStatus;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+  }) {
+    try {
+      const page = options?.page || 1;
+      const limit = options?.limit || 20;
+      const skip = (page - 1) * limit;
+      const sortBy = options?.sortBy || 'followUpDate';
+      const order = options?.order || 'desc';
+
+      const whereClause: any = {
+        surgery: {
+          patientId,
+        },
+        isArchived: false,
+        visibility: RecordVisibility.PUBLIC, // Only public follow-ups for patients
+        ...(options?.status && { status: options.status }),
+      };
+
+      const [followUps, total] = await Promise.all([
+        prisma.followUp.findMany({
+          where: whereClause,
+          include: {
+            surgery: {
+              select: {
+                id: true,
+                diagnosis: true,
+                procedureName: true,
+                surgeryDate: true,
+              },
+            },
+            surgeon: {
+              select: {
+                id: true,
+                fullName: true,
+                specialization: true,
+              },
+            },
+            media: {
+              where: {
+                isArchived: false,
+                visibility: RecordVisibility.PUBLIC,
+              },
+              select: {
+                id: true,
+                fileName: true,
+                fileType: true,
+                thumbnailUrl: true,
+                createdAt: true,
+              },
+            },
+          },
+          orderBy: { [sortBy]: order },
+          skip,
+          take: limit,
+        }),
+        prisma.followUp.count({ where: whereClause }),
+      ]);
+
+      return {
+        data: followUps,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      logger.error(`Error fetching follow-ups for patient ${patientId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all follow-ups (Admin only)
+   */
+  async getAllFollowUps(status?: FollowUpStatus) {
     try {
       const followUps = await prisma.followUp.findMany({
         where: {
-          surgery: {
-            patientId,
-          },
           isArchived: false,
-          visibility: RecordVisibility.PUBLIC, // Only public follow-ups for patients
+          ...(status && { status }),
         },
         include: {
           surgery: {
-            select: {
-              id: true,
-              diagnosis: true,
-              procedureName: true,
-              surgeryDate: true,
+            include: {
+              patient: {
+                select: {
+                  id: true,
+                  patientId: true,
+                  fullName: true,
+                  contactNumber: true,
+                },
+              },
             },
           },
-          doctor: {
+          surgeon: {
             select: {
               id: true,
               fullName: true,
@@ -284,17 +447,14 @@ export class FollowUpService {
             },
           },
           media: {
-            where: {
-              isArchived: false,
-              visibility: RecordVisibility.PUBLIC,
-            },
+            where: { isArchived: false },
             select: {
               id: true,
-              fileName: true,
               fileType: true,
-              thumbnailUrl: true,
-              createdAt: true,
             },
+          },
+          reminders: {
+            orderBy: { scheduledFor: 'asc' },
           },
         },
         orderBy: { followUpDate: 'desc' },
@@ -302,7 +462,7 @@ export class FollowUpService {
 
       return followUps;
     } catch (error) {
-      logger.error(`Error fetching follow-ups for patient ${patientId}:`, error);
+      logger.error('Error fetching all follow-ups:', error);
       throw error;
     }
   }
@@ -338,7 +498,7 @@ export class FollowUpService {
               patient: true,
             },
           },
-          doctor: true,
+          surgeon: true,
           media: {
             where: { isArchived: false },
           },
@@ -371,7 +531,7 @@ export class FollowUpService {
               patient: true,
             },
           },
-          doctor: true,
+          surgeon: true,
         },
       });
 
@@ -436,7 +596,7 @@ export class FollowUpService {
               },
             },
           },
-          doctor: {
+          surgeon: {
             select: {
               id: true,
               fullName: true,
@@ -500,7 +660,7 @@ export class FollowUpService {
               },
             },
           },
-          doctor: {
+          surgeon: {
             select: {
               id: true,
               fullName: true,

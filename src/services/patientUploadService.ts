@@ -48,7 +48,7 @@ export class PatientUploadService {
               id: true,
               patientId: true,
               fullName: true,
-              assignedDoctor: {
+              assignedSurgeon: {
                 select: {
                   id: true,
                   fullName: true,
@@ -83,7 +83,7 @@ export class PatientUploadService {
               id: true,
               patientId: true,
               fullName: true,
-              assignedDoctor: {
+              assignedSurgeon: {
                 select: {
                   id: true,
                   fullName: true,
@@ -102,16 +102,30 @@ export class PatientUploadService {
   }
 
   /**
-   * Get all uploads for a patient
+   * Get all uploads for a patient with pagination
    */
-  async getPatientUploadsByPatient(patientId: string) {
+  async getPatientUploadsByPatient(
+    patientId: string,
+    options?: {
+      skip?: number;
+      take?: number;
+      category?: string;
+      sortBy?: string;
+      order?: 'asc' | 'desc';
+    }
+  ) {
     try {
+      const categoryFilter = options?.category ? { category: options.category } : {};
+
       const uploads = await prisma.patientUpload.findMany({
         where: {
           patientId,
           isArchived: false,
+          ...categoryFilter,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [options?.sortBy || 'createdAt']: options?.order || 'desc' },
+        skip: options?.skip,
+        take: options?.take,
       });
 
       return uploads;
@@ -122,18 +136,40 @@ export class PatientUploadService {
   }
 
   /**
+   * Get count of uploads for a patient
+   */
+  async getPatientUploadsCount(patientId: string, category?: string) {
+    try {
+      const categoryFilter = category ? { category } : {};
+
+      const count = await prisma.patientUpload.count({
+        where: {
+          patientId,
+          isArchived: false,
+          ...categoryFilter,
+        },
+      });
+
+      return count;
+    } catch (error) {
+      logger.error(`Error counting uploads for patient ${patientId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Get unreviewed uploads (for doctor/moderator)
    */
-  async getUnreviewedUploads(assignedDoctorId?: string) {
+  async getUnreviewedUploads(assignedSurgeonId?: string) {
     try {
       const whereClause: any = {
         isReviewed: false,
         isArchived: false,
       };
 
-      if (assignedDoctorId) {
+      if (assignedSurgeonId) {
         whereClause.patient = {
-          assignedDoctorId,
+          assignedSurgeonId,
         };
       }
 
@@ -145,7 +181,7 @@ export class PatientUploadService {
               id: true,
               patientId: true,
               fullName: true,
-              assignedDoctor: {
+              assignedSurgeon: {
                 select: {
                   id: true,
                   fullName: true,
@@ -167,16 +203,16 @@ export class PatientUploadService {
   /**
    * Get reviewed uploads
    */
-  async getReviewedUploads(assignedDoctorId?: string) {
+  async getReviewedUploads(assignedSurgeonId?: string) {
     try {
       const whereClause: any = {
         isReviewed: true,
         isArchived: false,
       };
 
-      if (assignedDoctorId) {
+      if (assignedSurgeonId) {
         whereClause.patient = {
-          assignedDoctorId,
+          assignedSurgeonId,
         };
       }
 
@@ -188,7 +224,7 @@ export class PatientUploadService {
               id: true,
               patientId: true,
               fullName: true,
-              assignedDoctor: {
+              assignedSurgeon: {
                 select: {
                   id: true,
                   fullName: true,
@@ -329,7 +365,7 @@ export class PatientUploadService {
 
       if (doctorId) {
         whereClause.patient = {
-          assignedDoctorId: doctorId,
+          assignedSurgeonId: doctorId,
         };
       }
 

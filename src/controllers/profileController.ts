@@ -22,6 +22,35 @@ export class ProfileController {
           isActive: true,
           createdAt: true,
           updatedAt: true,
+          patient: {
+            select: {
+              id: true,
+              patientId: true,
+              fullName: true,
+              contactNumber: true,
+              whatsappNumber: true,
+            },
+          },
+          surgeon: {
+            select: {
+              id: true,
+              fullName: true,
+              specialization: true,
+              contactNumber: true,
+              whatsappNumber: true,
+            },
+          },
+          moderator: {
+            select: {
+              id: true,
+              fullName: true,
+              contactNumber: true,
+              whatsappNumber: true,
+              canAddRecords: true,
+              canEditRecords: true,
+              canDeleteRecords: true,
+            },
+          },
         },
       });
 

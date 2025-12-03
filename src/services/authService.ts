@@ -14,7 +14,6 @@ import {
 
 export enum UserRole {
   PATIENT = 'PATIENT',
-  DOCTOR = 'DOCTOR',
   MODERATOR = 'MODERATOR',
   SURGEON = 'SURGEON',
   ADMIN = 'ADMIN',
@@ -174,9 +173,9 @@ export class AuthService {
         },
       }) as User;
 
-      // Create Doctor profile for SURGEON role
+      // Create Surgeon profile for SURGEON role
       if (data.role === UserRole.SURGEON) {
-        await prisma.doctor.create({
+        await prisma.surgeon.create({
           data: {
             userId: user.id,
             fullName: data.fullName || data.email.split('@')[0],
@@ -184,7 +183,7 @@ export class AuthService {
             specialization: data.specialization || 'Surgeon',
           },
         });
-        logger.info(`Doctor profile created for surgeon: ${user.email}`);
+        logger.info(`Surgeon profile created for user: ${user.email}`);
       }
 
       await this.createAuditLog({
@@ -219,7 +218,7 @@ export class AuthService {
         where: { email },
         include: {
           patient: true,
-          doctor: true,
+          surgeon: true,
           moderator: true,
         },
       }) as User | null;
@@ -604,7 +603,7 @@ export class AuthService {
         where: { id: userId },
         include: {
           patient: true,
-          doctor: true,
+          surgeon: true,
           moderator: true,
         },
       }) as User | null;

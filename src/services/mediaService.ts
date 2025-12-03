@@ -6,7 +6,8 @@ import fs from 'fs/promises';
 const prisma = new PrismaClient();
 
 interface CreateMediaData {
-  followUpId: string;
+  followUpId?: string;
+  patientId?: string;
   fileName: string;
   originalName: string;
   fileType: MediaType;
@@ -38,6 +39,7 @@ export class MediaService {
       const media = await prisma.media.create({
         data: {
           followUpId: data.followUpId,
+          patientId: data.patientId,
           fileName: data.fileName,
           originalName: data.originalName,
           fileType: data.fileType,
@@ -67,10 +69,17 @@ export class MediaService {
               },
             },
           },
+          patient: {
+            select: {
+              id: true,
+              fullName: true,
+            },
+          },
         },
       });
 
-      logger.info(`Media created: ${media.id} for follow-up: ${data.followUpId}`);
+      const context = data.followUpId ? `for follow-up: ${data.followUpId}` : data.patientId ? `for patient: ${data.patientId}` : 'standalone';
+      logger.info(`Media created: ${media.id} ${context}`);
       return media;
     } catch (error) {
       logger.error('Error creating media:', error);
@@ -94,7 +103,7 @@ export class MediaService {
               surgery: {
                 include: {
                   patient: true,
-                  doctor: true,
+                  surgeon: true,
                 },
               },
             },
@@ -195,25 +204,44 @@ export class MediaService {
   }
 
   /**
-   * Get all media for a patient (across all follow-ups)
+   * Get all media for a patient (across all follow-ups and standalone) with pagination
    */
-  async getMediaByPatient(patientId: string, includePrivate: boolean = false) {
+  async getMediaByPatient(
+    patientId: string,
+    includePrivate: boolean = false,
+    options?: {
+      skip?: number;
+      take?: number;
+      fileType?: string;
+      sortBy?: string;
+      order?: 'asc' | 'desc';
+    }
+  ) {
     try {
-      const whereClause: any = {
-        followUp: {
-          surgery: {
-            patientId,
-          },
-        },
-        isArchived: false,
-      };
+      const visibilityFilter = includePrivate ? {} : { visibility: RecordVisibility.PUBLIC };
+      const fileTypeFilter = options?.fileType ? { fileType: options.fileType as MediaType } : {};
 
-      if (!includePrivate) {
-        whereClause.visibility = RecordVisibility.PUBLIC;
-      }
-
+      // Build where clause for OR condition: either linked via followUp OR directly to patient
       const media = await prisma.media.findMany({
-        where: whereClause,
+        where: {
+          OR: [
+            // Media linked to follow-ups for this patient
+            {
+              followUp: {
+                surgery: {
+                  patientId,
+                },
+              },
+            },
+            // Standalone media directly linked to patient
+            {
+              patientId,
+            },
+          ],
+          isArchived: false,
+          ...visibilityFilter,
+          ...fileTypeFilter,
+        },
         include: {
           followUp: {
             select: {
@@ -228,13 +256,140 @@ export class MediaService {
               },
             },
           },
+          patient: {
+            select: {
+              id: true,
+              fullName: true,
+            },
+          },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [options?.sortBy || 'createdAt']: options?.order || 'desc' },
+        skip: options?.skip,
+        take: options?.take,
       });
-
+      
       return media;
     } catch (error) {
       logger.error(`Error fetching media for patient ${patientId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get count of media for a patient
+   */
+  async getMediaCountByPatient(
+    patientId: string,
+    includePrivate: boolean = false,
+    fileType?: string
+  ) {
+    try {
+      const visibilityFilter = includePrivate ? {} : { visibility: RecordVisibility.PUBLIC };
+      const fileTypeFilter = fileType ? { fileType: fileType as MediaType } : {};
+
+      const count = await prisma.media.count({
+        where: {
+          OR: [
+            {
+              followUp: {
+                surgery: {
+                  patientId,
+                },
+              },
+            },
+            {
+              patientId,
+            },
+          ],
+          isArchived: false,
+          ...visibilityFilter,
+          ...fileTypeFilter,
+        },
+      });
+
+      return count;
+    } catch (error) {
+      logger.error(`Error counting media for patient ${patientId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all media (Admin only) with pagination and filters
+   */
+  async getAllMedia(options?: {
+    skip?: number;
+    take?: number;
+    fileType?: string;
+    uploadedByRole?: string;
+    search?: string;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+  }) {
+    try {
+      const fileTypeFilter = options?.fileType ? { fileType: options.fileType as MediaType } : {};
+      const roleFilter = options?.uploadedByRole ? { uploadedByRole: options.uploadedByRole as UserRole } : {};
+      const searchFilter = options?.search ? {
+        OR: [
+          { originalName: { contains: options.search, mode: 'insensitive' as const } },
+          { uploadedByName: { contains: options.search, mode: 'insensitive' as const } },
+        ],
+      } : {};
+
+      const [media, total] = await Promise.all([
+        prisma.media.findMany({
+          where: {
+            isArchived: false,
+            ...fileTypeFilter,
+            ...roleFilter,
+            ...searchFilter,
+          },
+          include: {
+            followUp: {
+              select: {
+                id: true,
+                followUpDate: true,
+                surgery: {
+                  select: {
+                    id: true,
+                    diagnosis: true,
+                    procedureName: true,
+                    patient: {
+                      select: {
+                        id: true,
+                        fullName: true,
+                        patientId: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            patient: {
+              select: {
+                id: true,
+                fullName: true,
+                patientId: true,
+              },
+            },
+          },
+          orderBy: { [options?.sortBy || 'createdAt']: options?.order || 'desc' },
+          skip: options?.skip,
+          take: options?.take,
+        }),
+        prisma.media.count({
+          where: {
+            isArchived: false,
+            ...fileTypeFilter,
+            ...roleFilter,
+            ...searchFilter,
+          },
+        }),
+      ]);
+
+      return { media, total };
+    } catch (error) {
+      logger.error('Error fetching all media:', error);
       throw error;
     }
   }

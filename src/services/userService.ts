@@ -126,17 +126,17 @@ export class UserService {
         },
       });
 
-      // Create Doctor profile for DOCTOR and SURGEON roles
-      if (data.role === UserRole.DOCTOR || data.role === UserRole.SURGEON) {
-        await prisma.doctor.create({
+      // Create Surgeon profile for SURGEON role
+      if (data.role === UserRole.SURGEON) {
+        await prisma.surgeon.create({
           data: {
             userId: user.id,
             fullName: data.name || data.email.split('@')[0],
             contactNumber: '', // Can be updated later
-            specialization: data.role === UserRole.SURGEON ? 'Surgeon' : null,
+            specialization: 'Surgeon',
           },
         });
-        logger.info(`Doctor profile created for user: ${user.email}`);
+        logger.info(`Surgeon profile created for user: ${user.email}`);
       }
 
       // Create Moderator profile for MODERATOR role

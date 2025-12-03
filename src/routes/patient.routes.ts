@@ -11,45 +11,56 @@ router.use(authenticate);
 /**
  * @route   GET /api/patients/moderators
  * @desc    Get all moderators for patient assignment
- * @access  Private (Doctor, Surgeon, Admin)
+ * @access  Private (Surgeon, Admin)
  */
 router.get(
   '/moderators',
-  authorize(UserRole.DOCTOR, UserRole.SURGEON, UserRole.ADMIN),
+  authorize(UserRole.SURGEON, UserRole.ADMIN),
   userController.getAllModerators.bind(userController)
+);
+
+/**
+ * @route   GET /api/patients/moderator/assigned
+ * @desc    Get patients assigned to the current moderator
+ * @access  Private (Moderator only)
+ */
+router.get(
+  '/moderator/assigned',
+  authorize(UserRole.MODERATOR),
+  patientController.getModeratorAssignedPatients
 );
 
 /**
  * @route   GET /api/patients/search
  * @desc    Search patients by name, email, CNIC, or patient ID
- * @access  Private (Doctor, Surgeon, Moderator, Admin)
+ * @access  Private (Surgeon, Moderator, Admin)
  * @query   q - Search query string
  */
 router.get(
   '/search',
-  authorize(UserRole.DOCTOR, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.searchPatients
 );
 
 /**
  * @route   GET /api/patients
  * @desc    Get all patients (excluding archived)
- * @access  Private (Doctor, Surgeon, Moderator, Admin)
+ * @access  Private (Surgeon, Moderator, Admin)
  */
 router.get(
   '/',
-  authorize(UserRole.DOCTOR, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.getAllPatients
 );
 
 /**
  * @route   GET /api/patients/:id
  * @desc    Get patient by ID
- * @access  Private (Patient can view own profile, Doctor/Surgeon/Moderator/Admin can view all)
+ * @access  Private (Patient can view own profile, Surgeon/Moderator/Admin can view all)
  */
 router.get(
   '/:id',
-  authorize(UserRole.PATIENT, UserRole.DOCTOR, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
+  authorize(UserRole.PATIENT, UserRole.SURGEON, UserRole.MODERATOR, UserRole.ADMIN),
   patientController.getPatient
 );
 

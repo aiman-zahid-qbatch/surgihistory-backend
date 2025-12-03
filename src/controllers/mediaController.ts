@@ -1,9 +1,11 @@
 import { Response, NextFunction } from 'express';
 import mediaService from '../services/mediaService';
+import notificationService from '../services/notificationService';
 import { logger } from '../config/logger';
 import { AuthRequest, UserRole } from '../middlewares/auth';
-import { MediaType } from '@prisma/client';
+import { MediaType, NotificationType } from '@prisma/client';
 import path from 'path';
+import { prisma } from '../config/database';
 
 export class MediaController {
   /**
@@ -27,12 +29,12 @@ export class MediaController {
         return;
       }
 
-      const { followUpId, visibility, includeInExport } = req.body;
+      const { followUpId, patientId, visibility, includeInExport } = req.body;
 
-      if (!followUpId) {
+      if (!followUpId && !patientId) {
         res.status(400).json({
           success: false,
-          message: 'Follow-up ID is required',
+          message: 'Either Follow-up ID or Patient ID is required',
         });
         return;
       }
@@ -52,7 +54,8 @@ export class MediaController {
       }
 
       const media = await mediaService.createMedia({
-        followUpId,
+        followUpId: followUpId || undefined,
+        patientId: patientId || undefined,
         fileName: req.file.filename,
         originalName: req.file.originalname,
         fileType,
@@ -65,6 +68,59 @@ export class MediaController {
         visibility: visibility || 'PUBLIC',
         includeInExport: includeInExport !== undefined ? includeInExport === 'true' : true,
       });
+
+      // Create notification for patient if surgeon uploaded the file and it's PUBLIC
+      if (req.user.role === UserRole.SURGEON && (visibility === 'PUBLIC' || !visibility)) {
+        try {
+          let targetPatientId = patientId;
+          let surgeonId: string | undefined;
+
+          // If followUpId is provided, get patient from follow-up
+          if (followUpId) {
+            const followUp = await prisma.followUp.findUnique({
+              where: { id: followUpId },
+              include: {
+                surgery: {
+                  include: {
+                    patient: true,
+                  },
+                },
+              },
+            });
+
+            if (followUp?.surgery?.patient) {
+              targetPatientId = followUp.surgery.patient.id;
+              surgeonId = followUp.surgeonId;
+            }
+          } else if (patientId) {
+            // Get surgeon ID from user
+            const surgeon = await prisma.surgeon.findUnique({
+              where: { userId: req.user.id },
+              select: { id: true },
+            });
+            surgeonId = surgeon?.id;
+          }
+
+          if (targetPatientId) {
+            await notificationService.createNotification({
+              recipientId: targetPatientId,
+              recipientRole: UserRole.PATIENT,
+              type: NotificationType.DOCUMENT_UPLOADED,
+              title: 'New Document Uploaded',
+              message: `Your doctor has uploaded a new document: ${req.file.originalname}`,
+              entityType: 'MEDIA',
+              entityId: media.id,
+              priority: 'normal',
+              badgeColor: 'blue',
+              patientId: targetPatientId,
+              surgeonId,
+            });
+          }
+        } catch (notifError) {
+          logger.error('Error creating notification for media upload:', notifError);
+          // Don't fail the upload if notification fails
+        }
+      }
 
       res.status(201).json({
         success: true,
@@ -97,12 +153,12 @@ export class MediaController {
         return;
       }
 
-      const { followUpId, visibility, includeInExport } = req.body;
+      const { followUpId, patientId, visibility, includeInExport } = req.body;
 
-      if (!followUpId) {
+      if (!followUpId && !patientId) {
         res.status(400).json({
           success: false,
-          message: 'Follow-up ID is required',
+          message: 'Either Follow-up ID or Patient ID is required',
         });
         return;
       }
@@ -125,7 +181,8 @@ export class MediaController {
         }
 
         const media = await mediaService.createMedia({
-          followUpId,
+          followUpId: followUpId || undefined,
+          patientId: patientId || undefined,
           fileName: file.filename,
           originalName: file.originalname,
           fileType,
@@ -140,6 +197,60 @@ export class MediaController {
         });
 
         uploadedMedia.push(media);
+      }
+
+      // Create notification for patient if surgeon uploaded files and they're PUBLIC
+      if (req.user.role === UserRole.SURGEON && (visibility === 'PUBLIC' || !visibility) && uploadedMedia.length > 0) {
+        try {
+          let targetPatientId = patientId;
+          let surgeonId: string | undefined;
+
+          // If followUpId is provided, get patient from follow-up
+          if (followUpId) {
+            const followUp = await prisma.followUp.findUnique({
+              where: { id: followUpId },
+              include: {
+                surgery: {
+                  include: {
+                    patient: true,
+                  },
+                },
+              },
+            });
+
+            if (followUp?.surgery?.patient) {
+              targetPatientId = followUp.surgery.patient.id;
+              surgeonId = followUp.surgeonId;
+            }
+          } else if (patientId) {
+            // Get surgeon ID from user
+            const surgeon = await prisma.surgeon.findUnique({
+              where: { userId: req.user.id },
+              select: { id: true },
+            });
+            surgeonId = surgeon?.id;
+          }
+
+          if (targetPatientId) {
+            const fileCount = uploadedMedia.length;
+            await notificationService.createNotification({
+              recipientId: targetPatientId,
+              recipientRole: UserRole.PATIENT,
+              type: NotificationType.DOCUMENT_UPLOADED,
+              title: 'New Documents Uploaded',
+              message: `Your doctor has uploaded ${fileCount} new document${fileCount > 1 ? 's' : ''}`,
+              entityType: 'MEDIA',
+              entityId: uploadedMedia[0].id,
+              priority: 'normal',
+              badgeColor: 'blue',
+              patientId: targetPatientId,
+              surgeonId,
+            });
+          }
+        } catch (notifError) {
+          logger.error('Error creating notification for media upload:', notifError);
+          // Don't fail the upload if notification fails
+        }
       }
 
       res.status(201).json({
@@ -208,18 +319,45 @@ export class MediaController {
   }
 
   /**
-   * Get media by patient
+   * Get media by patient with pagination
    */
   async getMediaByPatient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { patientId } = req.params;
+      const { page = '1', limit = '50', fileType, sortBy = 'createdAt', order = 'desc' } = req.query;
       const includePrivate = req.user?.role !== UserRole.PATIENT;
 
-      const media = await mediaService.getMediaByPatient(patientId, includePrivate);
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      const media = await mediaService.getMediaByPatient(
+        patientId,
+        includePrivate,
+        {
+          skip,
+          take: limitNum,
+          fileType: fileType as string,
+          sortBy: sortBy as string,
+          order: order as 'asc' | 'desc',
+        }
+      );
+
+      const totalCount = await mediaService.getMediaCountByPatient(
+        patientId,
+        includePrivate,
+        fileType as string
+      );
 
       res.json({
         success: true,
         data: media,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limitNum),
+        },
       });
     } catch (error) {
       logger.error('Error in getMediaByPatient controller:', error);
@@ -329,6 +467,43 @@ export class MediaController {
   }
 
   /**
+   * Get all media (Admin only)
+   */
+  async getAllMedia(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { page = '1', limit = '20', fileType, uploadedByRole, search, sortBy, order } = req.query;
+      
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      const { media, total } = await mediaService.getAllMedia({
+        skip,
+        take: limitNum,
+        fileType: fileType as string,
+        uploadedByRole: uploadedByRole as string,
+        search: search as string,
+        sortBy: sortBy as string,
+        order: order as 'asc' | 'desc',
+      });
+
+      res.json({
+        success: true,
+        data: media,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (error) {
+      logger.error('Error in getAllMedia controller:', error);
+      next(error);
+    }
+  }
+
+  /**
    * Search media
    */
   async searchMedia(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -351,6 +526,164 @@ export class MediaController {
       });
     } catch (error) {
       logger.error('Error in searchMedia controller:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get all media for moderator's assigned patients
+   */
+  async getModeratorAssignedMedia(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
+      // Get moderator profile
+      const moderator = await prisma.moderator.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true },
+      });
+
+      if (!moderator) {
+        res.status(404).json({
+          success: false,
+          message: 'Moderator profile not found',
+        });
+        return;
+      }
+
+      // Get assigned patient IDs
+      const assignedPatients = await prisma.patientModerator.findMany({
+        where: {
+          moderatorId: moderator.id,
+          status: 'ACCEPTED',
+        },
+        select: { patientId: true },
+      });
+
+      const patientIds = assignedPatients.map((p) => p.patientId);
+
+      if (patientIds.length === 0) {
+        res.json({
+          success: true,
+          data: [],
+          pagination: {
+            page: 1,
+            limit: 20,
+            total: 0,
+            totalPages: 0,
+          },
+        });
+        return;
+      }
+
+      const { page = '1', limit = '20', fileType, search, sortBy = 'createdAt', order = 'desc' } = req.query;
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Build filters
+      const fileTypeFilter = fileType ? { fileType: fileType as MediaType } : {};
+      const searchFilter = search ? {
+        OR: [
+          { originalName: { contains: search as string, mode: 'insensitive' as const } },
+          { uploadedByName: { contains: search as string, mode: 'insensitive' as const } },
+        ],
+      } : {};
+
+      // Get media for all assigned patients
+      const [media, total] = await Promise.all([
+        prisma.media.findMany({
+          where: {
+            OR: [
+              // Media linked to follow-ups for assigned patients
+              {
+                followUp: {
+                  surgery: {
+                    patientId: { in: patientIds },
+                  },
+                },
+              },
+              // Standalone media directly linked to assigned patients
+              {
+                patientId: { in: patientIds },
+              },
+            ],
+            isArchived: false,
+            ...fileTypeFilter,
+            ...searchFilter,
+          },
+          include: {
+            followUp: {
+              select: {
+                id: true,
+                followUpDate: true,
+                surgery: {
+                  select: {
+                    id: true,
+                    diagnosis: true,
+                    procedureName: true,
+                    patient: {
+                      select: {
+                        id: true,
+                        fullName: true,
+                        patientId: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            patient: {
+              select: {
+                id: true,
+                fullName: true,
+                patientId: true,
+              },
+            },
+          },
+          orderBy: { [sortBy as string]: order as 'asc' | 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.media.count({
+          where: {
+            OR: [
+              {
+                followUp: {
+                  surgery: {
+                    patientId: { in: patientIds },
+                  },
+                },
+              },
+              {
+                patientId: { in: patientIds },
+              },
+            ],
+            isArchived: false,
+            ...fileTypeFilter,
+            ...searchFilter,
+          },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: media,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (error) {
+      logger.error('Error in getModeratorAssignedMedia controller:', error);
       next(error);
     }
   }

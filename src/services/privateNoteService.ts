@@ -1,15 +1,17 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 import { logger } from '../config/logger';
 
 const prisma = new PrismaClient();
 
 interface CreatePrivateNoteData {
-  doctorId: string;
   patientId: string;
   followUpId?: string;
   surgeryId?: string;
   title?: string;
   content: string;
+  createdBy: string; // ID of the moderator who created this note
+  createdByRole: UserRole; // Role of the creator
+  createdByName: string; // Name of the creator
   audioUrl?: string;
   audioDuration?: number;
   hasTranscription?: boolean;
@@ -29,18 +31,20 @@ interface UpdatePrivateNoteData {
 
 export class PrivateNoteService {
   /**
-   * Create a new private note (doctor-only)
+   * Create a new private note (accessible by doctors, surgeons, and moderators)
    */
   async createPrivateNote(data: CreatePrivateNoteData) {
     try {
       const note = await prisma.privateNote.create({
         data: {
-          doctorId: data.doctorId,
           patientId: data.patientId,
           followUpId: data.followUpId,
           surgeryId: data.surgeryId,
           title: data.title,
           content: data.content,
+          createdBy: data.createdBy,
+          createdByRole: data.createdByRole,
+          createdByName: data.createdByName,
           audioUrl: data.audioUrl,
           audioDuration: data.audioDuration,
           hasTranscription: data.hasTranscription || false,
@@ -48,12 +52,6 @@ export class PrivateNoteService {
           attachments: data.attachments,
         },
         include: {
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-            },
-          },
           patient: {
             select: {
               id: true,
@@ -79,7 +77,7 @@ export class PrivateNoteService {
         },
       });
 
-      logger.info(`Private note created: ${note.id} by doctor: ${data.doctorId}`);
+      logger.info(`Private note created: ${note.id} by ${data.createdByRole}: ${data.createdByName}`);
       return note;
     } catch (error) {
       logger.error('Error creating private note:', error);
@@ -89,23 +87,16 @@ export class PrivateNoteService {
 
   /**
    * Get private note by ID
-   * Ensures only the doctor who created it can access
+   * Accessible by all moderators and surgeons
    */
-  async getPrivateNoteById(id: string, doctorId: string) {
+  async getPrivateNoteById(id: string) {
     try {
       const note = await prisma.privateNote.findFirst({
         where: {
           id,
-          doctorId, // Security: Only the doctor who created it can access
           isArchived: false,
         },
         include: {
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-            },
-          },
           followUp: {
             select: {
               id: true,
@@ -136,13 +127,12 @@ export class PrivateNoteService {
   }
 
   /**
-   * Get all private notes for a doctor
+   * Get all private notes (accessible by all moderators and surgeons)
    */
-  async getPrivateNotesByDoctor(doctorId: string) {
+  async getAllPrivateNotes() {
     try {
       const notes = await prisma.privateNote.findMany({
         where: {
-          doctorId,
           isArchived: false,
         },
         include: {
@@ -168,29 +158,21 @@ export class PrivateNoteService {
 
       return notes;
     } catch (error) {
-      logger.error(`Error fetching private notes for doctor ${doctorId}:`, error);
+      logger.error('Error fetching all private notes:', error);
       throw error;
     }
   }
 
   /**
    * Get private notes for a specific follow-up
+   * Accessible by all moderators and surgeons
    */
-  async getPrivateNotesByFollowUp(followUpId: string, doctorId: string) {
+  async getPrivateNotesByFollowUp(followUpId: string) {
     try {
       const notes = await prisma.privateNote.findMany({
         where: {
           followUpId,
-          doctorId, // Security: Only the doctor's own notes
           isArchived: false,
-        },
-        include: {
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-            },
-          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -204,22 +186,14 @@ export class PrivateNoteService {
 
   /**
    * Get private notes for a specific surgery
+   * Accessible by all moderators and surgeons
    */
-  async getPrivateNotesBySurgery(surgeryId: string, doctorId: string) {
+  async getPrivateNotesBySurgery(surgeryId: string) {
     try {
       const notes = await prisma.privateNote.findMany({
         where: {
           surgeryId,
-          doctorId, // Security: Only the doctor's own notes
           isArchived: false,
-        },
-        include: {
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-            },
-          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -233,23 +207,16 @@ export class PrivateNoteService {
 
   /**
    * Get private notes for a specific patient
-   * Only shows notes created by the requesting doctor
+   * Accessible by all moderators and surgeons
    */
-  async getPrivateNotesByPatient(patientId: string, doctorId: string) {
+  async getPrivateNotesByPatient(patientId: string) {
     try {
       const notes = await prisma.privateNote.findMany({
         where: {
           patientId,
-          doctorId, // Security: Only the doctor's own notes
           isArchived: false,
         },
         include: {
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-            },
-          },
           patient: {
             select: {
               id: true,
@@ -270,23 +237,17 @@ export class PrivateNoteService {
 
   /**
    * Update private note
-   * Only the doctor who created it can update
+   * Only the creator (moderator/surgeon) who created it can update
    */
-  async updatePrivateNote(id: string, doctorId: string, data: UpdatePrivateNoteData) {
+  async updatePrivateNote(id: string, createdBy: string, data: UpdatePrivateNoteData) {
     try {
       const note = await prisma.privateNote.update({
         where: {
           id,
-          doctorId, // Security: Only the doctor who created it can update
+          createdBy, // Security: Only the creator can update
         },
         data,
         include: {
-          doctor: {
-            select: {
-              id: true,
-              fullName: true,
-            },
-          },
           followUp: {
             select: {
               id: true,
@@ -296,7 +257,7 @@ export class PrivateNoteService {
         },
       });
 
-      logger.info(`Private note updated: ${id} by doctor: ${doctorId}`);
+      logger.info(`Private note updated: ${id} by creator: ${createdBy}`);
       return note;
     } catch (error) {
       logger.error(`Error updating private note ${id}:`, error);
@@ -306,13 +267,14 @@ export class PrivateNoteService {
 
   /**
    * Add audio transcription to private note
+   * Only the creator can add transcription
    */
-  async addTranscription(id: string, doctorId: string, transcriptionText: string) {
+  async addTranscription(id: string, createdBy: string, transcriptionText: string) {
     try {
       const note = await prisma.privateNote.update({
         where: {
           id,
-          doctorId,
+          createdBy,
         },
         data: {
           hasTranscription: true,
@@ -330,14 +292,14 @@ export class PrivateNoteService {
 
   /**
    * Archive private note (soft delete)
-   * Only the doctor who created it can archive
+   * Only the creator (moderator/surgeon) who created it can archive
    */
-  async archivePrivateNote(id: string, doctorId: string) {
+  async archivePrivateNote(id: string, createdBy: string) {
     try {
       const note = await prisma.privateNote.update({
         where: {
           id,
-          doctorId, // Security: Only the doctor who created it can archive
+          createdBy, // Security: Only the creator can archive
         },
         data: {
           isArchived: true,
@@ -345,7 +307,7 @@ export class PrivateNoteService {
         },
       });
 
-      logger.info(`Private note archived: ${id} by doctor: ${doctorId}`);
+      logger.info(`Private note archived: ${id} by creator: ${createdBy}`);
       return note;
     } catch (error) {
       logger.error(`Error archiving private note ${id}:`, error);
@@ -354,13 +316,12 @@ export class PrivateNoteService {
   }
 
   /**
-   * Search private notes (only for the specified doctor)
+   * Search private notes (accessible by all moderators and surgeons)
    */
-  async searchPrivateNotes(query: string, doctorId: string) {
+  async searchPrivateNotes(query: string) {
     try {
       const notes = await prisma.privateNote.findMany({
         where: {
-          doctorId,
           isArchived: false,
           OR: [
             {
@@ -413,20 +374,19 @@ export class PrivateNoteService {
   }
 
   /**
-   * Get private note count for a doctor
+   * Get total private note count (accessible by all moderators and surgeons)
    */
-  async getPrivateNoteCount(doctorId: string) {
+  async getPrivateNoteCount() {
     try {
       const count = await prisma.privateNote.count({
         where: {
-          doctorId,
           isArchived: false,
         },
       });
 
       return count;
     } catch (error) {
-      logger.error(`Error getting private note count for doctor ${doctorId}:`, error);
+      logger.error('Error getting private note count:', error);
       throw error;
     }
   }

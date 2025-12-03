@@ -2,7 +2,9 @@ import { Response, NextFunction } from 'express';
 import followUpService from '../services/followUpService';
 import { logger } from '../config/logger';
 import { AuthRequest, UserRole } from '../middlewares/auth';
-import { FollowUpStatus } from '@prisma/client';
+import { FollowUpStatus, NotificationType } from '@prisma/client';
+import { prisma } from '../config/database';
+import notificationService from '../services/notificationService';
 
 export class FollowUpController {
   /**
@@ -18,7 +20,60 @@ export class FollowUpController {
         return;
       }
 
-      const followUp = await followUpService.createFollowUp(req.body, req.user.id);
+      // Fetch surgeon profile for authenticated user
+      const surgeon = await prisma.surgeon.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true },
+      });
+
+      if (!surgeon) {
+        res.status(404).json({
+          success: false,
+          message: 'Surgeon profile not found. Only surgeons can create follow-ups.',
+        });
+        return;
+      }
+
+      // Use the surgeon's ID from their profile
+      const followUpData = {
+        ...req.body,
+        surgeonId: surgeon.id, // Override with correct surgeon ID
+      };
+
+      const followUp = await followUpService.createFollowUp(followUpData, req.user.id);
+
+      // Create notification for patient about new follow-up
+      try {
+        const surgery = await prisma.surgery.findUnique({
+          where: { id: followUpData.surgeryId },
+          include: {
+            patient: {
+              select: { id: true, fullName: true },
+            },
+          },
+        });
+
+        if (surgery?.patient) {
+          const followUpDate = new Date(followUpData.followUpDate).toLocaleDateString();
+          await notificationService.createNotification({
+            recipientId: surgery.patient.id,
+            recipientRole: UserRole.PATIENT,
+            type: NotificationType.FOLLOW_UP_REMINDER,
+            title: 'New Follow-up Scheduled',
+            message: `A follow-up appointment has been scheduled for ${followUpDate}`,
+            entityType: 'follow_up',
+            entityId: followUp.id,
+            priority: 'high',
+            badgeColor: 'yellow',
+            patientId: surgery.patient.id,
+            surgeonId: surgeon.id,
+          });
+        }
+      } catch (notifError) {
+        logger.error('Error creating follow-up notification:', notifError);
+        // Don't fail the follow-up creation if notification fails
+      }
+
       res.status(201).json({
         success: true,
         data: followUp,
@@ -86,24 +141,63 @@ export class FollowUpController {
   }
 
   /**
-   * Get follow-ups by doctor
+   * Get follow-ups by surgeon
    */
-  async getFollowUpsByDoctor(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  async getFollowUpsBySurgeon(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { doctorId } = req.params;
-      const { status } = req.query;
+      const { surgeonId } = req.params;
+      const { status, page = '1', limit = '20', search, sortBy = 'followUpDate', order = 'desc' } = req.query;
 
-      const followUps = await followUpService.getFollowUpsByDoctor(
-        doctorId,
-        status as FollowUpStatus | undefined
+      const result = await followUpService.getFollowUpsBySurgeon(
+        surgeonId,
+        status as FollowUpStatus | undefined,
+        {
+          page: parseInt(page as string, 10),
+          limit: parseInt(limit as string, 10),
+          search: search as string,
+          sortBy: sortBy as string,
+          order: order as 'asc' | 'desc',
+        }
       );
 
       res.json({
         success: true,
-        data: followUps,
+        data: result.data,
+        pagination: result.pagination,
       });
     } catch (error) {
-      logger.error('Error in getFollowUpsByDoctor controller:', error);
+      logger.error('Error in getFollowUpsBySurgeon controller:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get follow-ups by moderator (assigned patients only)
+   */
+  async getFollowUpsByModerator(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { moderatorId } = req.params;
+      const { status, page = '1', limit = '20', search, sortBy = 'followUpDate', order = 'desc' } = req.query;
+
+      const result = await followUpService.getFollowUpsByModerator(
+        moderatorId,
+        status as FollowUpStatus | undefined,
+        {
+          page: parseInt(page as string, 10),
+          limit: parseInt(limit as string, 10),
+          search: search as string,
+          sortBy: sortBy as string,
+          order: order as 'asc' | 'desc',
+        }
+      );
+
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error('Error in getFollowUpsByModerator controller:', error);
       next(error);
     }
   }
@@ -114,24 +208,60 @@ export class FollowUpController {
   async getFollowUpsByPatient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { patientId } = req.params;
+      const { status, page = '1', limit = '20', sortBy = 'followUpDate', order = 'desc' } = req.query;
 
       // If patient role, verify they can only access their own follow-ups
-      if (req.user?.role === UserRole.PATIENT && req.user.id !== patientId) {
-        res.status(403).json({
-          success: false,
-          message: 'Access denied',
+      if (req.user?.role === UserRole.PATIENT) {
+        // Get the patient profile ID for this user
+        const patientProfile = await prisma.patient.findUnique({
+          where: { userId: req.user.id },
+          select: { id: true },
         });
-        return;
+
+        if (!patientProfile || patientProfile.id !== patientId) {
+          res.status(403).json({
+            success: false,
+            message: 'Access denied',
+          });
+          return;
+        }
       }
 
-      const followUps = await followUpService.getFollowUpsByPatient(patientId);
+      const result = await followUpService.getFollowUpsByPatient(patientId, {
+        page: parseInt(page as string, 10),
+        limit: parseInt(limit as string, 10),
+        status: status as FollowUpStatus | undefined,
+        sortBy: sortBy as string,
+        order: order as 'asc' | 'desc',
+      });
+
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error('Error in getFollowUpsByPatient controller:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get all follow-ups (Admin only)
+   */
+  async getAllFollowUps(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { status } = req.query;
+      const followUps = await followUpService.getAllFollowUps(
+        status as FollowUpStatus | undefined
+      );
 
       res.json({
         success: true,
         data: followUps,
       });
     } catch (error) {
-      logger.error('Error in getFollowUpsByPatient controller:', error);
+      logger.error('Error in getAllFollowUps controller:', error);
       next(error);
     }
   }
@@ -150,7 +280,7 @@ export class FollowUpController {
       }
 
       const { id } = req.params;
-      const isDoctor = [UserRole.DOCTOR, UserRole.ADMIN].includes(req.user.role);
+      const isDoctor = [UserRole.SURGEON, UserRole.ADMIN].includes(req.user.role);
 
       const followUp = await followUpService.updateFollowUp(
         id,
@@ -198,6 +328,59 @@ export class FollowUpController {
         status as FollowUpStatus,
         req.user.id
       );
+
+      // Notify patient of status update
+      try {
+        const followUpWithDetails = await prisma.followUp.findUnique({
+          where: { id },
+          include: {
+            surgery: {
+              include: {
+                patient: {
+                  select: { id: true, fullName: true },
+                },
+              },
+            },
+            surgeon: {
+              select: { id: true, fullName: true },
+            },
+          },
+        });
+
+        if (followUpWithDetails?.surgery?.patient) {
+          let statusMessage = '';
+          let priority: 'low' | 'normal' | 'high' = 'normal';
+          let badgeColor = 'blue';
+
+          if (status === FollowUpStatus.COMPLETED) {
+            statusMessage = 'Your follow-up appointment has been marked as completed';
+            priority = 'low';
+            badgeColor = 'green';
+          } else if (status === FollowUpStatus.MISSED) {
+            statusMessage = 'Your follow-up appointment was marked as missed. Please contact your surgeon to reschedule';
+            priority = 'high';
+            badgeColor = 'red';
+          }
+
+          if (statusMessage) {
+            await notificationService.createNotification({
+              recipientId: followUpWithDetails.surgery.patient.id,
+              recipientRole: UserRole.PATIENT,
+              type: NotificationType.RECORD_UPDATE,
+              title: 'Follow-up Status Updated',
+              message: statusMessage,
+              entityType: 'follow_up',
+              entityId: id,
+              priority,
+              badgeColor,
+              patientId: followUpWithDetails.surgery.patient.id,
+              surgeonId: followUpWithDetails.surgeon?.id,
+            });
+          }
+        }
+      } catch (notifError) {
+        logger.error('Error creating follow-up status notification:', notifError);
+      }
 
       res.json({
         success: true,

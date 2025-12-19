@@ -1,12 +1,12 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { NotificationType, UserRole, Notification } from '@prisma/client';
+import { Notification } from '@prisma/client';
 import { emitNotification } from '../config/socket';
 
 interface CreateNotificationData {
   recipientId: string;
-  recipientRole: UserRole;
-  type: NotificationType;
+  recipientRole: string;
+  type: string;
   title: string;
   message: string;
   entityType?: string;
@@ -26,8 +26,8 @@ class NotificationService {
       const notification = await prisma.notification.create({
         data: {
           recipientId: data.recipientId,
-          recipientRole: data.recipientRole,
-          type: data.type,
+          recipientRole: data.recipientRole as any,
+          type: data.type as any,
           title: data.title,
           message: data.message,
           entityType: data.entityType,
@@ -52,19 +52,19 @@ class NotificationService {
         // Get user ID from the recipient (patient/surgeon/moderator) ID
         let userId = data.recipientId;
 
-        if (data.recipientRole === UserRole.PATIENT) {
+        if (data.recipientRole === 'PATIENT') {
           const patient = await prisma.patient.findUnique({
             where: { id: data.recipientId },
             select: { userId: true },
           });
           if (patient) userId = patient.userId;
-        } else if (data.recipientRole === UserRole.SURGEON) {
+        } else if (data.recipientRole === 'SURGEON') {
           const surgeon = await prisma.surgeon.findUnique({
             where: { id: data.recipientId },
             select: { userId: true },
           });
           if (surgeon) userId = surgeon.userId;
-        } else if (data.recipientRole === UserRole.MODERATOR) {
+        } else if (data.recipientRole === 'MODERATOR') {
           const moderator = await prisma.moderator.findUnique({
             where: { id: data.recipientId },
             select: { userId: true },
@@ -90,14 +90,14 @@ class NotificationService {
    */
   async getNotificationsByUser(
     userId: string,
-    role: UserRole,
+    role: string,
     isRead?: boolean
   ): Promise<Notification[]> {
     try {
       // First get the appropriate ID based on role
       let recipientId = userId;
 
-      if (role === UserRole.PATIENT) {
+      if (role === 'PATIENT') {
         const patient = await prisma.patient.findUnique({
           where: { userId },
           select: { id: true },
@@ -106,7 +106,7 @@ class NotificationService {
           return [];
         }
         recipientId = patient.id;
-      } else if (role === UserRole.SURGEON) {
+      } else if (role === 'SURGEON') {
         const surgeon = await prisma.surgeon.findUnique({
           where: { userId },
           select: { id: true },
@@ -115,7 +115,7 @@ class NotificationService {
           return [];
         }
         recipientId = surgeon.id;
-      } else if (role === UserRole.MODERATOR) {
+      } else if (role === 'MODERATOR') {
         const moderator = await prisma.moderator.findUnique({
           where: { userId },
           select: { id: true },
@@ -128,7 +128,7 @@ class NotificationService {
 
       const whereClause: any = {
         recipientId,
-        recipientRole: role,
+        recipientRole: role as any,
         OR: [
           { expiresAt: null },
           { expiresAt: { gte: new Date() } },
@@ -240,12 +240,12 @@ class NotificationService {
   /**
    * Get unread notification count for a user
    */
-  async getUnreadCount(userId: string, role: UserRole): Promise<number> {
+  async getUnreadCount(userId: string, role: string): Promise<number> {
     try {
       // Get the appropriate ID based on role
       let recipientId = userId;
 
-      if (role === UserRole.PATIENT) {
+      if (role === 'PATIENT') {
         const patient = await prisma.patient.findUnique({
           where: { userId },
           select: { id: true },
@@ -254,7 +254,7 @@ class NotificationService {
           return 0;
         }
         recipientId = patient.id;
-      } else if (role === UserRole.SURGEON) {
+      } else if (role === 'SURGEON') {
         const surgeon = await prisma.surgeon.findUnique({
           where: { userId },
           select: { id: true },
@@ -263,7 +263,7 @@ class NotificationService {
           return 0;
         }
         recipientId = surgeon.id;
-      } else if (role === UserRole.MODERATOR) {
+      } else if (role === 'MODERATOR') {
         const moderator = await prisma.moderator.findUnique({
           where: { userId },
           select: { id: true },
@@ -277,7 +277,7 @@ class NotificationService {
       const count = await prisma.notification.count({
         where: {
           recipientId,
-          recipientRole: role,
+          recipientRole: role as any,
           isRead: false,
           OR: [
             { expiresAt: null },
@@ -355,8 +355,8 @@ class NotificationService {
       // Create notification for patient
       await this.createNotification({
         recipientId: patient.id,
-        recipientRole: UserRole.PATIENT,
-        type: NotificationType.FOLLOW_UP_REMINDER,
+        recipientRole: 'PATIENT',
+        type: 'FOLLOW_UP_REMINDER',
         title: 'Upcoming Follow-up Appointment',
         message: `You have a follow-up appointment scheduled for ${followUp.followUpDate.toLocaleDateString()}`,
         entityType: 'follow_up',
@@ -370,8 +370,8 @@ class NotificationService {
       // Create notification for surgeon
       await this.createNotification({
         recipientId: surgeon.id,
-        recipientRole: UserRole.SURGEON,
-        type: NotificationType.FOLLOW_UP_REMINDER,
+        recipientRole: 'SURGEON',
+        type: 'FOLLOW_UP_REMINDER',
         title: 'Patient Follow-up Scheduled',
         message: `Follow-up scheduled for patient ${patient.fullName} on ${followUp.followUpDate.toLocaleDateString()}`,
         entityType: 'follow_up',
@@ -411,8 +411,8 @@ class NotificationService {
       if (surgeonId) {
         await this.createNotification({
           recipientId: surgeonId,
-          recipientRole: UserRole.SURGEON,
-          type: NotificationType.NEW_UPLOAD,
+          recipientRole: 'SURGEON',
+          type: 'NEW_UPLOAD',
           title: 'New Patient Upload',
           message: `Patient ${upload.patient.fullName} uploaded a new ${upload.category || 'document'}`,
           entityType: 'patient_upload',
@@ -427,8 +427,8 @@ class NotificationService {
       // Notify patient of successful upload
       await this.createNotification({
         recipientId: patientId,
-        recipientRole: UserRole.PATIENT,
-        type: NotificationType.NEW_UPLOAD,
+        recipientRole: 'PATIENT',
+        type: 'NEW_UPLOAD',
         title: 'Upload Successful',
         message: 'Your document has been uploaded successfully and is pending review',
         entityType: 'patient_upload',
@@ -456,8 +456,8 @@ class NotificationService {
     try {
       await this.createNotification({
         recipientId: patientId,
-        recipientRole: UserRole.PATIENT,
-        type: NotificationType.RECORD_UPDATE,
+        recipientRole: 'PATIENT',
+        type: 'RECORD_UPDATE',
         title: 'Medical Record Updated',
         message: updateMessage,
         entityType,
@@ -482,8 +482,8 @@ class NotificationService {
     try {
       await this.createNotification({
         recipientId: moderatorId,
-        recipientRole: UserRole.MODERATOR,
-        type: NotificationType.MODERATOR_CREATED,
+        recipientRole: 'MODERATOR',
+        type: 'MODERATOR_CREATED',
         title: 'Welcome to SurgiHistory',
         message: `Your moderator account has been created by Dr. ${surgeonName}. You can now manage patient assignments.`,
         priority: 'high',
@@ -508,8 +508,8 @@ class NotificationService {
     try {
       await this.createNotification({
         recipientId: moderatorId,
-        recipientRole: UserRole.MODERATOR,
-        type: NotificationType.ASSIGNMENT_REQUEST,
+        recipientRole: 'MODERATOR',
+        type: 'ASSIGNMENT_REQUEST',
         title: 'New Patient Assignment',
         message: `Dr. ${surgeonName} has assigned patient "${patientName}" to you. Please review and respond.`,
         entityType: 'patient_assignment',
@@ -536,8 +536,8 @@ class NotificationService {
     try {
       await this.createNotification({
         recipientId: surgeonId,
-        recipientRole: UserRole.SURGEON,
-        type: NotificationType.ASSIGNMENT_ACCEPTED,
+        recipientRole: 'SURGEON',
+        type: 'ASSIGNMENT_ACCEPTED',
         title: 'Assignment Accepted',
         message: `${moderatorName} has accepted the assignment for patient "${patientName}".`,
         entityType: 'patient',
@@ -565,8 +565,8 @@ class NotificationService {
     try {
       await this.createNotification({
         recipientId: surgeonId,
-        recipientRole: UserRole.SURGEON,
-        type: NotificationType.ASSIGNMENT_REJECTED,
+        recipientRole: 'SURGEON',
+        type: 'ASSIGNMENT_REJECTED',
         title: 'Assignment Rejected',
         message: `${moderatorName} has rejected the assignment for patient "${patientName}". Please assign a different moderator.`,
         entityType: 'patient',
@@ -595,8 +595,8 @@ class NotificationService {
     try {
       await this.createNotification({
         recipientId: moderatorId,
-        recipientRole: UserRole.MODERATOR,
-        type: NotificationType.PATIENT_MEDIA_UPLOAD,
+        recipientRole: 'MODERATOR',
+        type: 'PATIENT_MEDIA_UPLOAD',
         title: 'New Patient Upload',
         message: `Patient "${patientName}" has uploaded a new file: ${fileName}`,
         entityType: 'media',

@@ -3,7 +3,7 @@ import whatsappService from '../services/whatsappService';
 import reminderService from '../services/reminderService';
 import { logger } from '../config/logger';
 import { AuthRequest } from '../middlewares/auth';
-import { ReminderChannel, ReminderStatus } from '@prisma/client';
+
 import { prisma } from '../config/database';
 
 // Webhook verify token - set this in your .env file
@@ -303,8 +303,8 @@ export class WhatsAppController {
       // Get all pending WhatsApp reminders that are due
       const pendingReminders = await prisma.reminder.findMany({
         where: {
-          status: ReminderStatus.PENDING,
-          channel: ReminderChannel.WHATSAPP,
+          status: 'PENDING',
+          channel: 'WHATSAPP',
           scheduledFor: {
             lte: new Date(),
           },

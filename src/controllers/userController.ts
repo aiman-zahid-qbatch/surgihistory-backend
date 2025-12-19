@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { userService } from '../services/userService';
 import { logger } from '../config/logger';
 import { prisma } from '../config/database';
-import { AuditAction } from '@prisma/client';
+
 import { AuthRequest } from '../middlewares/auth';
 import { logAuditEvent } from '../middlewares/auditLog';
 import notificationService from '../services/notificationService';
@@ -37,7 +37,7 @@ export class UserController {
 
   async createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email, name, role } = req.body;
+      const { email, name, role, cnic, fullName, fatherName, contactNumber, whatsappNumber, address } = req.body;
 
       if (!email || !role) {
         res.status(400).json({ message: 'Email and role are required' });
@@ -51,10 +51,46 @@ export class UserController {
         return;
       }
 
-      const user = await userService.createUser({ email, name, role });
+      // Validate required fields for PATIENT role
+      if (role === 'PATIENT') {
+        if (!cnic || !fullName || !fatherName || !contactNumber) {
+          res.status(400).json({ 
+            message: 'Patient role requires: cnic, fullName, fatherName, and contactNumber' 
+          });
+          return;
+        }
+
+        // Validate CNIC format
+        const cnicRegex = /^\d{5}-?\d{7}-?\d{1}$/;
+        if (!cnicRegex.test(cnic)) {
+          res.status(400).json({ message: 'Invalid CNIC format. Use format: 12345-1234567-1' });
+          return;
+        }
+
+        // Validate contact number
+        const phoneRegex = /^[+]?[\d\s-]+$/;
+        const digitsOnly = contactNumber.replace(/[^\d]/g, '');
+        if (!phoneRegex.test(contactNumber) || digitsOnly.length < 10) {
+          res.status(400).json({ message: 'Invalid contact number. Must contain at least 10 digits' });
+          return;
+        }
+      }
+
+      const user = await userService.createUser({ 
+        email, 
+        name: name || fullName, 
+        role,
+        // Patient-specific fields
+        cnic,
+        fullName,
+        fatherName,
+        contactNumber,
+        whatsappNumber,
+        address,
+      });
 
       // Log audit event for user creation
-      await logAuditEvent(req, AuditAction.CREATE, 'user', user.id, {
+      await logAuditEvent(req, 'CREATE', 'user', user.id, {
         description: `Created user: ${email} with role ${role}`,
         changes: { email, name, role },
       });
@@ -62,7 +98,9 @@ export class UserController {
       res.status(201).json(user);
     } catch (error: any) {
       logger.error('Error in createUser:', error);
-      if (error.message === 'User already exists with this email') {
+      if (error.message === 'User with this email already exists' || 
+          error.message === 'Patient with this CNIC already exists' ||
+          error.message.includes('Patient role requires')) {
         res.status(409).json({ message: error.message });
         return;
       }
@@ -78,7 +116,7 @@ export class UserController {
       const user = await userService.updateUser(id, { email, name, role, isActive });
 
       // Log audit event for user update
-      await logAuditEvent(req, AuditAction.UPDATE, 'user', id, {
+      await logAuditEvent(req, 'UPDATE', 'user', id, {
         description: `Updated user: ${user.email}`,
         changes: { email, name, role, isActive },
       });
@@ -103,7 +141,7 @@ export class UserController {
       const { id } = req.params;
 
       // Log audit event before deletion
-      await logAuditEvent(req, AuditAction.DELETE, 'user', id, {
+      await logAuditEvent(req, 'DELETE', 'user', id, {
         description: `Deleted user with ID: ${id}`,
       });
 
@@ -129,7 +167,7 @@ export class UserController {
       const user = await userService.toggleUserStatus(id);
 
       // Log audit event for status toggle
-      await logAuditEvent(req, AuditAction.UPDATE, 'user', id, {
+      await logAuditEvent(req, 'UPDATE', 'user', id, {
         description: `Toggled user status: ${user.email} is now ${user.isActive ? 'active' : 'inactive'}`,
         changes: { isActive: user.isActive },
       });
@@ -165,7 +203,7 @@ export class UserController {
       const user = await userService.approveSurgeon(id);
 
       // Log audit event for surgeon approval
-      await logAuditEvent(req, AuditAction.UPDATE, 'surgeon', id, {
+      await logAuditEvent(req, 'UPDATE', 'surgeon', id, {
         description: `Approved surgeon: ${user.email}`,
       });
 
@@ -189,7 +227,7 @@ export class UserController {
       const { id } = req.params;
 
       // Log audit event for surgeon rejection
-      await logAuditEvent(req, AuditAction.DELETE, 'surgeon', id, {
+      await logAuditEvent(req, 'DELETE', 'surgeon', id, {
         description: `Rejected surgeon registration with ID: ${id}`,
       });
 

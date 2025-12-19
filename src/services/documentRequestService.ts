@@ -1,6 +1,5 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { DocumentRequestStatus, NotificationType, UserRole } from '@prisma/client';
 import notificationService from './notificationService';
 
 interface CreateDocumentRequestData {
@@ -24,7 +23,7 @@ class DocumentRequestService {
         title: data.title,
         description: data.description,
         category: data.category,
-        status: DocumentRequestStatus.PENDING,
+        status: 'PENDING',
       };
 
       // Only include surgeonId if provided
@@ -62,8 +61,8 @@ class DocumentRequestService {
       // Send notification to patient
       const notificationData: any = {
         recipientId: data.patientId,
-        recipientRole: UserRole.PATIENT,
-        type: NotificationType.DOCUMENT_REQUESTED,
+        recipientRole: 'PATIENT',
+        type: 'DOCUMENT_REQUESTED',
         title: data.surgeonId ? 'Document Request from Your Doctor' : 'Document Request',
         message: data.surgeonId ? `Your doctor has requested: ${data.title}` : `Document requested: ${data.title}`,
         entityType: 'document_request',
@@ -204,7 +203,7 @@ class DocumentRequestService {
       const documentRequest = await prisma.documentRequest.update({
         where: { id: requestId },
         data: {
-          status: DocumentRequestStatus.UPLOADED,
+          status: 'UPLOADED',
           uploadedMediaId: mediaId,
           uploadedAt: new Date(),
         },
@@ -232,8 +231,8 @@ class DocumentRequestService {
       if (documentRequest.surgeonId) {
         await notificationService.createNotification({
           recipientId: documentRequest.surgeonId,
-          recipientRole: UserRole.SURGEON,
-          type: NotificationType.DOCUMENT_UPLOADED,
+          recipientRole: 'SURGEON',
+          type: 'DOCUMENT_UPLOADED',
           title: 'Document Request Fulfilled',
           message: `${documentRequest.patient.fullName} has uploaded the requested document: ${documentRequest.title}`,
           entityType: 'document_request',

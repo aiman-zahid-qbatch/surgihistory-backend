@@ -2,14 +2,14 @@ import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { UserRole } from '@prisma/client';
+
 import { emailService } from './emailService';
 
 interface User {
   id: string;
   email: string;
   name: string | null;
-  role: UserRole;
+  role: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -18,13 +18,20 @@ interface User {
 interface CreateUserData {
   email: string;
   name?: string;
-  role: UserRole;
+  role: string;
+  // Patient-specific fields (required when role is PATIENT)
+  cnic?: string;
+  fullName?: string;
+  fatherName?: string;
+  contactNumber?: string;
+  whatsappNumber?: string;
+  address?: string;
 }
 
 interface UpdateUserData {
   email?: string;
   name?: string;
-  role?: UserRole;
+  role?: string;
   isActive?: boolean;
 }
 
@@ -46,7 +53,7 @@ export class UserService {
       const users = await prisma.user.findMany({
         where: excludeAdmins ? {
           role: {
-            not: UserRole.ADMIN
+            not: 'ADMIN'
           }
         } : undefined,
         select: {
@@ -127,7 +134,7 @@ export class UserService {
       });
 
       // Create Surgeon profile for SURGEON role
-      if (data.role === UserRole.SURGEON) {
+      if (data.role === 'SURGEON') {
         await prisma.surgeon.create({
           data: {
             userId: user.id,
@@ -140,7 +147,7 @@ export class UserService {
       }
 
       // Create Moderator profile for MODERATOR role
-      if (data.role === UserRole.MODERATOR) {
+      if (data.role === 'MODERATOR') {
         await prisma.moderator.create({
           data: {
             userId: user.id,
@@ -152,7 +159,22 @@ export class UserService {
       }
 
       // Create Patient profile for PATIENT role
-      if (data.role === UserRole.PATIENT) {
+      if (data.role === 'PATIENT') {
+        // Validate required patient fields
+        if (!data.cnic || !data.fullName || !data.fatherName || !data.contactNumber) {
+          throw new Error('Patient role requires: cnic, fullName, fatherName, and contactNumber');
+        }
+
+        // Check if CNIC already exists
+        const existingPatient = await prisma.patient.findUnique({
+          where: { cnic: data.cnic },
+        });
+        if (existingPatient) {
+          // Rollback user creation
+          await prisma.user.delete({ where: { id: user.id } });
+          throw new Error('Patient with this CNIC already exists');
+        }
+
         // Generate a unique patient ID
         const patientCount = await prisma.patient.count();
         const patientId = `PAT-${new Date().getFullYear()}-${String(patientCount + 1).padStart(4, '0')}`;
@@ -161,11 +183,12 @@ export class UserService {
           data: {
             userId: user.id,
             patientId: patientId,
-            cnic: '', // Must be filled later
-            fullName: data.name || data.email.split('@')[0],
-            fatherName: '', // Must be filled later
-            contactNumber: '', // Must be filled later
-            address: '', // Must be filled later
+            cnic: data.cnic,
+            fullName: data.fullName,
+            fatherName: data.fatherName,
+            contactNumber: data.contactNumber,
+            whatsappNumber: data.whatsappNumber || data.contactNumber,
+            address: data.address || '',
           },
         });
         logger.info(`Patient profile created for user: ${user.email} with ID: ${patientId}`);
@@ -205,7 +228,7 @@ export class UserService {
       }
 
       // Prevent changing admin role
-      if (existingUser.role === UserRole.ADMIN) {
+      if (existingUser.role === 'ADMIN') {
         throw new Error('Cannot modify admin users');
       }
 
@@ -259,7 +282,7 @@ export class UserService {
       }
 
       // Prevent deleting admin users
-      if (user.role === UserRole.ADMIN) {
+      if (user.role === 'ADMIN') {
         throw new Error('Cannot delete admin users');
       }
 
@@ -285,7 +308,7 @@ export class UserService {
       }
 
       // Prevent deactivating admin users
-      if (user.role === UserRole.ADMIN) {
+      if (user.role === 'ADMIN') {
         throw new Error('Cannot modify admin status');
       }
 
@@ -324,7 +347,7 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      if (user.role !== UserRole.SURGEON) {
+      if (user.role !== 'SURGEON') {
         throw new Error('User is not a surgeon');
       }
 
@@ -379,7 +402,7 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      if (user.role !== UserRole.SURGEON) {
+      if (user.role !== 'SURGEON') {
         throw new Error('User is not a surgeon');
       }
 
@@ -413,7 +436,7 @@ export class UserService {
     try {
       const pendingSurgeons = await prisma.user.findMany({
         where: {
-          role: UserRole.SURGEON,
+          role: 'SURGEON',
           isActive: false,
         },
         select: {

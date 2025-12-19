@@ -1,4 +1,4 @@
-import { PrismaClient, FollowUpStatus, RecordVisibility } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { logger } from '../config/logger';
 
 const prisma = new PrismaClient();
@@ -10,8 +10,8 @@ interface CreateFollowUpData {
   scheduledTime?: string;
   description: string;
   observations?: string;
-  status?: FollowUpStatus;
-  visibility?: RecordVisibility;
+  status?: string;
+  visibility?: string;
 }
 
 interface UpdateFollowUpData {
@@ -19,8 +19,8 @@ interface UpdateFollowUpData {
   scheduledTime?: string;
   description?: string;
   observations?: string;
-  status?: FollowUpStatus;
-  visibility?: RecordVisibility;
+  status?: string;
+  visibility?: string;
   lastDoctorUpdate?: Date;
   lastPatientUpdate?: Date;
 }
@@ -39,8 +39,8 @@ export class FollowUpService {
           scheduledTime: data.scheduledTime,
           description: data.description,
           observations: data.observations,
-          status: data.status || FollowUpStatus.PENDING,
-          visibility: data.visibility || RecordVisibility.PUBLIC,
+          status: data.status || 'PENDING',
+          visibility: data.visibility || 'PUBLIC',
           createdBy,
           lastDoctorUpdate: new Date(),
         },
@@ -141,7 +141,7 @@ export class FollowUpService {
   /**
    * Get all follow-ups for a surgeon
    */
-  async getFollowUpsBySurgeon(surgeonId: string, status?: FollowUpStatus, options?: {
+  async getFollowUpsBySurgeon(surgeonId: string, status?: string, options?: {
     page?: number;
     limit?: number;
     search?: string;
@@ -163,9 +163,9 @@ export class FollowUpService {
 
       if (options?.search) {
         whereClause.OR = [
-          { description: { contains: options.search, mode: 'insensitive' } },
-          { observations: { contains: options.search, mode: 'insensitive' } },
-          { surgery: { patient: { fullName: { contains: options.search, mode: 'insensitive' } } } },
+          { description: { contains: options.search } },
+          { observations: { contains: options.search } },
+          { surgery: { patient: { fullName: { contains: options.search } } } },
         ];
       }
 
@@ -221,7 +221,7 @@ export class FollowUpService {
   /**
    * Get all follow-ups for assigned patients (moderator view)
    */
-  async getFollowUpsByModerator(moderatorId: string, status?: FollowUpStatus, options?: {
+  async getFollowUpsByModerator(moderatorId: string, status?: string, options?: {
     page?: number;
     limit?: number;
     search?: string;
@@ -273,9 +273,9 @@ export class FollowUpService {
 
       if (options?.search) {
         whereClause.OR = [
-          { description: { contains: options.search, mode: 'insensitive' } },
-          { observations: { contains: options.search, mode: 'insensitive' } },
-          { surgery: { patient: { fullName: { contains: options.search, mode: 'insensitive' } } } },
+          { description: { contains: options.search } },
+          { observations: { contains: options.search } },
+          { surgery: { patient: { fullName: { contains: options.search } } } },
         ];
       }
 
@@ -341,7 +341,7 @@ export class FollowUpService {
   async getFollowUpsByPatient(patientId: string, options?: {
     page?: number;
     limit?: number;
-    status?: FollowUpStatus;
+    status?: string;
     sortBy?: string;
     order?: 'asc' | 'desc';
   }) {
@@ -357,7 +357,7 @@ export class FollowUpService {
           patientId,
         },
         isArchived: false,
-        visibility: RecordVisibility.PUBLIC, // Only public follow-ups for patients
+        visibility: 'PUBLIC', // Only public follow-ups for patients
         ...(options?.status && { status: options.status }),
       };
 
@@ -383,7 +383,7 @@ export class FollowUpService {
             media: {
               where: {
                 isArchived: false,
-                visibility: RecordVisibility.PUBLIC,
+                visibility: 'PUBLIC',
               },
               select: {
                 id: true,
@@ -419,7 +419,7 @@ export class FollowUpService {
   /**
    * Get all follow-ups (Admin only)
    */
-  async getAllFollowUps(status?: FollowUpStatus) {
+  async getAllFollowUps(status?: string) {
     try {
       const followUps = await prisma.followUp.findMany({
         where: {
@@ -516,7 +516,7 @@ export class FollowUpService {
   /**
    * Update follow-up status
    */
-  async updateFollowUpStatus(id: string, status: FollowUpStatus, modifiedBy: string) {
+  async updateFollowUpStatus(id: string, status: string, modifiedBy: string) {
     try {
       const followUp = await prisma.followUp.update({
         where: { id },
@@ -580,7 +580,7 @@ export class FollowUpService {
             gte: today,
             lte: futureDate,
           },
-          status: FollowUpStatus.PENDING,
+          status: 'PENDING',
           isArchived: false,
         },
         include: {
@@ -627,13 +627,11 @@ export class FollowUpService {
             {
               description: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
             {
               observations: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
             {
@@ -641,7 +639,6 @@ export class FollowUpService {
                 patient: {
                   fullName: {
                     contains: query,
-                    mode: 'insensitive',
                   },
                 },
               },

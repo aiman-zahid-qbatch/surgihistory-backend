@@ -3,7 +3,7 @@ import patientUploadService from '../services/patientUploadService';
 import notificationService from '../services/notificationService';
 import { logger } from '../config/logger';
 import { AuthRequest, UserRole } from '../middlewares/auth';
-import { MediaType } from '@prisma/client';
+
 import { prisma } from '../config/database';
 import path from 'path';
 
@@ -49,17 +49,30 @@ export class PatientUploadController {
       }
 
       // Determine file type from mimetype
-      let fileType: MediaType;
-      if (req.file.mimetype.startsWith('image/')) {
-        fileType = MediaType.IMAGE;
-      } else if (req.file.mimetype.startsWith('audio/')) {
-        fileType = MediaType.AUDIO;
-      } else if (req.file.mimetype.startsWith('video/')) {
-        fileType = MediaType.VIDEO;
-      } else if (req.file.mimetype === 'application/pdf') {
-        fileType = MediaType.PDF;
+      let fileType: string;
+      // Support both single and multiple file uploads
+      let uploadedFile: any = undefined;
+      if (req.file) {
+        uploadedFile = req.file;
+      } else if (Array.isArray(req.files) && req.files.length > 0) {
+        uploadedFile = req.files[0];
+      } else if (req.files && typeof req.files === 'object') {
+        // Multer can provide files as an object: { fieldname: File[] }
+        const filesArray = Object.values(req.files)[0];
+        if (Array.isArray(filesArray) && filesArray.length > 0) {
+          uploadedFile = filesArray[0];
+        }
+      }
+      if (uploadedFile && uploadedFile.mimetype.startsWith('image/')) {
+        fileType = 'IMAGE';
+      } else if (uploadedFile && uploadedFile.mimetype.startsWith('audio/')) {
+        fileType = 'AUDIO';
+      } else if (uploadedFile && uploadedFile.mimetype.startsWith('video/')) {
+        fileType = 'VIDEO';
+      } else if (uploadedFile && uploadedFile.mimetype === 'application/pdf') {
+        fileType = 'PDF';
       } else {
-        fileType = MediaType.DOCUMENT;
+        fileType = 'DOCUMENT';
       }
 
       const upload = await patientUploadService.createPatientUpload({

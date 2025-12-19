@@ -1,10 +1,10 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { AuditAction } from '@prisma/client';
+
 
 export interface CreateAuditLogData {
   userId?: string;
-  action: AuditAction;
+  action: string;
   entityType: string;
   entityId: string;
   changes?: Record<string, any>;
@@ -19,7 +19,7 @@ export interface CreateAuditLogData {
 
 export interface AuditLogFilters {
   userId?: string;
-  action?: AuditAction;
+  action?: string;
   entityType?: string;
   entityId?: string;
   success?: boolean;
@@ -56,7 +56,7 @@ export class AuditLogService {
           action: data.action,
           entityType: data.entityType,
           entityId: data.entityId,
-          changes: data.changes,
+          changes: typeof data.changes === 'string' ? data.changes : JSON.stringify(data.changes),
           description: data.description,
           ipAddress: data.ipAddress,
           userAgent: data.userAgent,
@@ -120,9 +120,9 @@ export class AuditLogService {
 
       if (filters.search) {
         where.OR = [
-          { description: { contains: filters.search, mode: 'insensitive' } },
-          { entityId: { contains: filters.search, mode: 'insensitive' } },
-          { entityType: { contains: filters.search, mode: 'insensitive' } },
+          { description: { contains: filters.search } },
+          { entityId: { contains: filters.search } },
+          { entityType: { contains: filters.search } },
         ];
       }
 
@@ -462,7 +462,7 @@ export class AuditLogService {
    * Get all possible audit actions
    */
   getAuditActions(): string[] {
-    return Object.values(AuditAction);
+    return ['CREATE', 'UPDATE', 'VIEW', 'HIDE', 'ARCHIVE', 'DELETE', 'EXPORT', 'SHARE'];
   }
 }
 

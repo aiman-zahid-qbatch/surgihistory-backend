@@ -4,8 +4,8 @@ import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { emailService } from '../services/emailService';
-import { UserRole, AuditAction } from '@prisma/client';
-import { AuthRequest } from '../middlewares/auth';
+
+import { AuthRequest, UserRole } from '../middlewares/auth';
 import { prisma } from '../config/database';
 import { logAuditEvent } from '../middlewares/auditLog';
 
@@ -209,7 +209,7 @@ export class PatientController {
       }
 
       // Log audit event for patient creation
-      await logAuditEvent(req, AuditAction.CREATE, 'patient', patient.id, {
+      await logAuditEvent(req, 'CREATE', 'patient', patient.id, {
         description: `Created patient: ${fullName}`,
         changes: {
           patientId,
@@ -381,7 +381,7 @@ export class PatientController {
       });
 
       // Log audit event for patient update
-      await logAuditEvent(req, AuditAction.UPDATE, 'patient', id, {
+      await logAuditEvent(req, 'UPDATE', 'patient', id, {
         description: `Updated patient: ${patient.fullName}`,
         changes: req.body,
       });
@@ -402,7 +402,7 @@ export class PatientController {
       const patient = await patientService.archivePatient(id);
 
       // Log audit event for patient archive
-      await logAuditEvent(req, AuditAction.ARCHIVE, 'patient', id, {
+      await logAuditEvent(req, 'ARCHIVE', 'patient', id, {
         description: `Archived patient: ${patient.fullName}`,
       });
 

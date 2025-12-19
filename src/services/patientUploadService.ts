@@ -1,4 +1,4 @@
-import { PrismaClient, MediaType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { logger } from '../config/logger';
 
 const prisma = new PrismaClient();
@@ -7,7 +7,7 @@ interface CreatePatientUploadData {
   patientId: string;
   fileName: string;
   originalName: string;
-  fileType: MediaType;
+  fileType: string;
   mimeType: string;
   fileUrl: string;
   thumbnailUrl?: string;
@@ -391,19 +391,16 @@ export class PatientUploadService {
           {
             originalName: {
               contains: query,
-              mode: 'insensitive',
             },
           },
           {
             description: {
               contains: query,
-              mode: 'insensitive',
             },
           },
           {
             category: {
               contains: query,
-              mode: 'insensitive',
             },
           },
         ],

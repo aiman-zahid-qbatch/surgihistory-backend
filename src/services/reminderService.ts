@@ -1,19 +1,19 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { ReminderChannel, ReminderStatus, UserRole } from '@prisma/client';
+
 
 interface CreateReminderData {
   entityType: string;
   entityId: string;
   followUpId?: string;
   recipientId: string;
-  recipientRole: UserRole;
+  recipientRole: string;
   recipientName?: string;
   recipientPhone?: string;
   title: string;
   message: string;
   scheduledFor: Date;
-  channel: ReminderChannel;
+  channel: string;
   isRecurring?: boolean;
   recurringPattern?: string;
   daysBefore?: number;
@@ -23,8 +23,8 @@ interface UpdateReminderData {
   title?: string;
   message?: string;
   scheduledFor?: Date;
-  channel?: ReminderChannel;
-  status?: ReminderStatus;
+  channel?: string;
+  status?: string;
   isRecurring?: boolean;
   recurringPattern?: string;
   daysBefore?: number;
@@ -40,6 +40,7 @@ export class ReminderService {
         data: {
           ...data,
           createdBy,
+           status: 'PENDING',
         },
         include: {
           followUp: {
@@ -74,7 +75,7 @@ export class ReminderService {
     patientPhone: string | null,
     patientWhatsapp: string | null,
     reminderDays: number[], // e.g., [1, 3, 7] days before
-    channels: ReminderChannel[], // e.g., ['EMAIL', 'WHATSAPP']
+    channels: string[], // e.g., ['EMAIL', 'WHATSAPP']
     createdBy: string
   ) {
     try {
@@ -91,14 +92,15 @@ export class ReminderService {
               entityId: followUpId,
               followUpId,
               recipientId: patientId,
-              recipientRole: UserRole.PATIENT,
+              recipientRole: 'PATIENT',
               recipientName: patientName,
-              recipientPhone: channel === ReminderChannel.WHATSAPP ? (patientWhatsapp || patientPhone) : patientPhone,
+              recipientPhone: channel === 'WHATSAPP' ? (patientWhatsapp || patientPhone) : patientPhone,
               title: `Follow-up Reminder - ${days} day${days > 1 ? 's' : ''} before`,
               message: `You have a follow-up appointment scheduled in ${days} day${days > 1 ? 's' : ''}. Please make sure to attend.`,
               scheduledFor: scheduledDate,
               channel,
               daysBefore: days,
+               status: 'PENDING',
               createdBy,
             },
             include: {
@@ -170,7 +172,7 @@ export class ReminderService {
     try {
       const reminders = await prisma.reminder.findMany({
         where: {
-          status: ReminderStatus.PENDING,
+          status: 'PENDING',
           scheduledFor: {
             lte: beforeDate,
           },
@@ -226,7 +228,7 @@ export class ReminderService {
       const reminder = await prisma.reminder.update({
         where: { id },
         data: {
-          status: ReminderStatus.SENT,
+          status: 'SENT',
           sentAt: new Date(),
           attempts: {
             increment: 1,
@@ -251,7 +253,7 @@ export class ReminderService {
       const reminder = await prisma.reminder.update({
         where: { id },
         data: {
-          status: ReminderStatus.FAILED,
+          status: 'FAILED',
           attempts: {
             increment: 1,
           },
@@ -276,7 +278,7 @@ export class ReminderService {
       const reminder = await prisma.reminder.update({
         where: { id },
         data: {
-          status: ReminderStatus.CANCELLED,
+          status: 'CANCELLED',
         },
       });
 
@@ -324,7 +326,7 @@ export class ReminderService {
   /**
    * Get reminders for a recipient
    */
-  async getRemindersByRecipient(recipientId: string, status?: ReminderStatus) {
+  async getRemindersByRecipient(recipientId: string, status?: string) {
     try {
       const reminders = await prisma.reminder.findMany({
         where: {

@@ -2,8 +2,8 @@ import { Response, NextFunction } from 'express';
 import mediaService from '../services/mediaService';
 import notificationService from '../services/notificationService';
 import { logger } from '../config/logger';
-import { AuthRequest, UserRole } from '../middlewares/auth';
-import { MediaType, NotificationType } from '@prisma/client';
+import { AuthRequest } from '../middlewares/auth';
+
 import path from 'path';
 import { prisma } from '../config/database';
 
@@ -40,17 +40,17 @@ export class MediaController {
       }
 
       // Determine file type from mimetype
-      let fileType: MediaType;
+      let fileType: string;
       if (req.file.mimetype.startsWith('image/')) {
-        fileType = MediaType.IMAGE;
+        fileType = 'IMAGE';
       } else if (req.file.mimetype.startsWith('audio/')) {
-        fileType = MediaType.AUDIO;
+        fileType = 'AUDIO';
       } else if (req.file.mimetype.startsWith('video/')) {
-        fileType = MediaType.VIDEO;
+        fileType = 'VIDEO';
       } else if (req.file.mimetype === 'application/pdf') {
-        fileType = MediaType.PDF;
+        fileType = 'PDF';
       } else {
-        fileType = MediaType.DOCUMENT;
+        fileType = 'DOCUMENT';
       }
 
       const media = await mediaService.createMedia({
@@ -70,7 +70,7 @@ export class MediaController {
       });
 
       // Create notification for patient if surgeon uploaded the file and it's PUBLIC
-      if (req.user.role === UserRole.SURGEON && (visibility === 'PUBLIC' || !visibility)) {
+      if (req.user.role === 'SURGEON' && (visibility === 'PUBLIC' || !visibility)) {
         try {
           let targetPatientId = patientId;
           let surgeonId: string | undefined;
@@ -104,8 +104,8 @@ export class MediaController {
           if (targetPatientId) {
             await notificationService.createNotification({
               recipientId: targetPatientId,
-              recipientRole: UserRole.PATIENT,
-              type: NotificationType.DOCUMENT_UPLOADED,
+              recipientRole: 'PATIENT',
+              type: 'DOCUMENT_UPLOADED',
               title: 'New Document Uploaded',
               message: `Your doctor has uploaded a new document: ${req.file.originalname}`,
               entityType: 'MEDIA',
@@ -167,17 +167,17 @@ export class MediaController {
 
       for (const file of req.files) {
         // Determine file type from mimetype
-        let fileType: MediaType;
+        let fileType: string;
         if (file.mimetype.startsWith('image/')) {
-          fileType = MediaType.IMAGE;
+          fileType = 'IMAGE';
         } else if (file.mimetype.startsWith('audio/')) {
-          fileType = MediaType.AUDIO;
+          fileType = 'AUDIO';
         } else if (file.mimetype.startsWith('video/')) {
-          fileType = MediaType.VIDEO;
+          fileType = 'VIDEO';
         } else if (file.mimetype === 'application/pdf') {
-          fileType = MediaType.PDF;
+          fileType = 'PDF';
         } else {
-          fileType = MediaType.DOCUMENT;
+          fileType = 'DOCUMENT';
         }
 
         const media = await mediaService.createMedia({
@@ -200,7 +200,7 @@ export class MediaController {
       }
 
       // Create notification for patient if surgeon uploaded files and they're PUBLIC
-      if (req.user.role === UserRole.SURGEON && (visibility === 'PUBLIC' || !visibility) && uploadedMedia.length > 0) {
+      if (req.user.role === 'SURGEON' && (visibility === 'PUBLIC' || !visibility) && uploadedMedia.length > 0) {
         try {
           let targetPatientId = patientId;
           let surgeonId: string | undefined;
@@ -235,8 +235,8 @@ export class MediaController {
             const fileCount = uploadedMedia.length;
             await notificationService.createNotification({
               recipientId: targetPatientId,
-              recipientRole: UserRole.PATIENT,
-              type: NotificationType.DOCUMENT_UPLOADED,
+              recipientRole: 'PATIENT',
+              type: 'DOCUMENT_UPLOADED',
               title: 'New Documents Uploaded',
               message: `Your doctor has uploaded ${fileCount} new document${fileCount > 1 ? 's' : ''}`,
               entityType: 'MEDIA',
@@ -280,7 +280,7 @@ export class MediaController {
       }
 
       // Check visibility for patients
-      if (req.user?.role === UserRole.PATIENT && media.visibility === 'PRIVATE') {
+      if (req.user?.role === 'PATIENT' && media.visibility === 'PRIVATE') {
         res.status(403).json({
           success: false,
           message: 'Access denied',
@@ -304,7 +304,7 @@ export class MediaController {
   async getMediaByFollowUp(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { followUpId } = req.params;
-      const includePrivate = req.user?.role !== UserRole.PATIENT;
+      const includePrivate = req.user?.role !== 'PATIENT';
 
       const media = await mediaService.getMediaByFollowUp(followUpId, includePrivate);
 
@@ -325,7 +325,7 @@ export class MediaController {
     try {
       const { patientId } = req.params;
       const { page = '1', limit = '50', fileType, sortBy = 'createdAt', order = 'desc' } = req.query;
-      const includePrivate = req.user?.role !== UserRole.PATIENT;
+      const includePrivate = req.user?.role !== 'PATIENT';
 
       const pageNum = parseInt(page as string, 10);
       const limitNum = parseInt(limit as string, 10);
@@ -587,8 +587,11 @@ export class MediaController {
       const limitNum = parseInt(limit as string, 10);
       const skip = (pageNum - 1) * limitNum;
 
+      // Ensure fileType is a string (not array or object)
+      let fileTypeValue: string | undefined = undefined;
+      if (typeof fileType === 'string') fileTypeValue = fileType;
       // Build filters
-      const fileTypeFilter = fileType ? { fileType: fileType as MediaType } : {};
+      const fileTypeFilter = fileTypeValue ? { fileType: fileTypeValue as any } : {};
       const searchFilter = search ? {
         OR: [
           { originalName: { contains: search as string, mode: 'insensitive' as const } },
@@ -705,7 +708,7 @@ export class MediaController {
       }
 
       // Check visibility for patients
-      if (req.user?.role === UserRole.PATIENT && media.visibility === 'PRIVATE') {
+      if (req.user?.role === 'PATIENT' && media.visibility === 'PRIVATE') {
         res.status(403).json({
           success: false,
           message: 'Access denied',

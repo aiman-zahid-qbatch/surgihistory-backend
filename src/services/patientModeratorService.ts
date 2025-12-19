@@ -1,4 +1,4 @@
-import { PrismaClient, AssignmentStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { logger } from '../config/logger';
 import notificationService from './notificationService';
 
@@ -13,7 +13,7 @@ export class PatientModeratorService {
       const assignments = await prisma.patientModerator.findMany({
         where: {
           moderatorId,
-          status: AssignmentStatus.PENDING,
+          status: 'PENDING',
         },
         include: {
           patient: {
@@ -57,7 +57,7 @@ export class PatientModeratorService {
         where: {
           id: assignmentId,
           moderatorId,
-          status: AssignmentStatus.PENDING,
+          status: 'PENDING',
         },
         include: {
           moderator: {
@@ -73,7 +73,7 @@ export class PatientModeratorService {
       const updatedAssignment = await prisma.patientModerator.update({
         where: { id: assignmentId },
         data: {
-          status: AssignmentStatus.ACCEPTED,
+          status: 'ACCEPTED',
           respondedAt: new Date(),
         },
         include: {
@@ -131,7 +131,7 @@ export class PatientModeratorService {
         where: {
           id: assignmentId,
           moderatorId,
-          status: AssignmentStatus.PENDING,
+          status: 'PENDING',
         },
         include: {
           moderator: {
@@ -147,7 +147,7 @@ export class PatientModeratorService {
       const updatedAssignment = await prisma.patientModerator.update({
         where: { id: assignmentId },
         data: {
-          status: AssignmentStatus.REJECTED,
+          status: 'REJECTED',
           respondedAt: new Date(),
         },
         include: {
@@ -198,7 +198,7 @@ export class PatientModeratorService {
   /**
    * Get all assignments for a moderator (with status filter)
    */
-  async getAssignmentsByModerator(moderatorId: string, status?: AssignmentStatus) {
+  async getAssignmentsByModerator(moderatorId: string, status?: string) {
     try {
       const assignments = await prisma.patientModerator.findMany({
         where: {
@@ -244,13 +244,13 @@ export class PatientModeratorService {
     try {
       const [pending, accepted, rejected] = await Promise.all([
         prisma.patientModerator.count({
-          where: { moderatorId, status: AssignmentStatus.PENDING },
+          where: { moderatorId, status: 'PENDING' },
         }),
         prisma.patientModerator.count({
-          where: { moderatorId, status: AssignmentStatus.ACCEPTED },
+          where: { moderatorId, status: 'ACCEPTED' },
         }),
         prisma.patientModerator.count({
-          where: { moderatorId, status: AssignmentStatus.REJECTED },
+          where: { moderatorId, status: 'REJECTED' },
         }),
       ]);
 

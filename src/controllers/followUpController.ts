@@ -1,8 +1,8 @@
 import { Response, NextFunction } from 'express';
 import followUpService from '../services/followUpService';
 import { logger } from '../config/logger';
-import { AuthRequest, UserRole } from '../middlewares/auth';
-import { FollowUpStatus, NotificationType } from '@prisma/client';
+import { AuthRequest } from '../middlewares/auth';
+
 import { prisma } from '../config/database';
 import notificationService from '../services/notificationService';
 
@@ -57,8 +57,8 @@ export class FollowUpController {
           const followUpDate = new Date(followUpData.followUpDate).toLocaleDateString();
           await notificationService.createNotification({
             recipientId: surgery.patient.id,
-            recipientRole: UserRole.PATIENT,
-            type: NotificationType.FOLLOW_UP_REMINDER,
+            recipientRole: 'PATIENT',
+            type: 'FOLLOW_UP_REMINDER',
             title: 'New Follow-up Scheduled',
             message: `A follow-up appointment has been scheduled for ${followUpDate}`,
             entityType: 'follow_up',
@@ -101,7 +101,7 @@ export class FollowUpController {
       }
 
       // Check if patient is trying to access private follow-up
-      if (req.user?.role === UserRole.PATIENT && followUp.visibility === 'PRIVATE') {
+      if (req.user?.role === 'PATIENT' && followUp.visibility === 'PRIVATE') {
         // Verify patient owns this follow-up
         if (followUp.surgery.patientId !== req.user.id) {
           res.status(403).json({
@@ -150,7 +150,7 @@ export class FollowUpController {
 
       const result = await followUpService.getFollowUpsBySurgeon(
         surgeonId,
-        status as FollowUpStatus | undefined,
+        status as string | undefined,
         {
           page: parseInt(page as string, 10),
           limit: parseInt(limit as string, 10),
@@ -181,7 +181,7 @@ export class FollowUpController {
 
       const result = await followUpService.getFollowUpsByModerator(
         moderatorId,
-        status as FollowUpStatus | undefined,
+        status as string | undefined,
         {
           page: parseInt(page as string, 10),
           limit: parseInt(limit as string, 10),
@@ -211,7 +211,7 @@ export class FollowUpController {
       const { status, page = '1', limit = '20', sortBy = 'followUpDate', order = 'desc' } = req.query;
 
       // If patient role, verify they can only access their own follow-ups
-      if (req.user?.role === UserRole.PATIENT) {
+      if (req.user?.role === 'PATIENT') {
         // Get the patient profile ID for this user
         const patientProfile = await prisma.patient.findUnique({
           where: { userId: req.user.id },
@@ -230,7 +230,7 @@ export class FollowUpController {
       const result = await followUpService.getFollowUpsByPatient(patientId, {
         page: parseInt(page as string, 10),
         limit: parseInt(limit as string, 10),
-        status: status as FollowUpStatus | undefined,
+        status: status as string | undefined,
         sortBy: sortBy as string,
         order: order as 'asc' | 'desc',
       });
@@ -253,7 +253,7 @@ export class FollowUpController {
     try {
       const { status } = req.query;
       const followUps = await followUpService.getAllFollowUps(
-        status as FollowUpStatus | undefined
+        status as string | undefined
       );
 
       res.json({
@@ -280,7 +280,7 @@ export class FollowUpController {
       }
 
       const { id } = req.params;
-      const isDoctor = [UserRole.SURGEON, UserRole.ADMIN].includes(req.user.role);
+      const isDoctor = ['SURGEON', 'ADMIN'].includes(req.user.role);
 
       const followUp = await followUpService.updateFollowUp(
         id,
@@ -315,7 +315,7 @@ export class FollowUpController {
       const { id } = req.params;
       const { status } = req.body;
 
-      if (!status || !Object.values(FollowUpStatus).includes(status)) {
+      if (!status || typeof status !== 'string') {
         res.status(400).json({
           success: false,
           message: 'Valid status is required',
@@ -325,7 +325,7 @@ export class FollowUpController {
 
       const followUp = await followUpService.updateFollowUpStatus(
         id,
-        status as FollowUpStatus,
+        status,
         req.user.id
       );
 
@@ -352,11 +352,11 @@ export class FollowUpController {
           let priority: 'low' | 'normal' | 'high' = 'normal';
           let badgeColor = 'blue';
 
-          if (status === FollowUpStatus.COMPLETED) {
+          if (status === 'COMPLETED') {
             statusMessage = 'Your follow-up appointment has been marked as completed';
             priority = 'low';
             badgeColor = 'green';
-          } else if (status === FollowUpStatus.MISSED) {
+          } else if (status === 'MISSED') {
             statusMessage = 'Your follow-up appointment was marked as missed. Please contact your surgeon to reschedule';
             priority = 'high';
             badgeColor = 'red';
@@ -365,8 +365,8 @@ export class FollowUpController {
           if (statusMessage) {
             await notificationService.createNotification({
               recipientId: followUpWithDetails.surgery.patient.id,
-              recipientRole: UserRole.PATIENT,
-              type: NotificationType.RECORD_UPDATE,
+              recipientRole: 'PATIENT',
+              type: 'RECORD_UPDATE',
               title: 'Follow-up Status Updated',
               message: statusMessage,
               entityType: 'follow_up',

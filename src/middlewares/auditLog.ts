@@ -1,14 +1,14 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 import { auditLogService, CreateAuditLogData } from '../services/auditLogService';
-import { AuditAction } from '@prisma/client';
+
 
 /**
  * Middleware to create audit logs for specific actions
  * Use this as a middleware wrapper for routes that need audit logging
  */
 export const createAuditLog = (
-  action: AuditAction,
+  action: string,
   entityType: string,
   getEntityId: (req: AuthRequest) => string,
   getDescription?: (req: AuthRequest) => string,
@@ -50,7 +50,7 @@ export const createAuditLog = (
  */
 export const logAuditEvent = async (
   req: AuthRequest,
-  action: AuditAction,
+  action: string,
   entityType: string,
   entityId: string,
   options?: {
@@ -86,41 +86,41 @@ export const auditMiddleware = {
    * Audit CREATE action
    */
   create: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.CREATE, entityType, getEntityId),
+    createAuditLog('CREATE', entityType, getEntityId),
 
   /**
    * Audit UPDATE action
    */
   update: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.UPDATE, entityType, getEntityId),
+    createAuditLog('UPDATE', entityType, getEntityId),
 
   /**
    * Audit DELETE action
    */
   delete: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.DELETE, entityType, getEntityId),
+    createAuditLog('DELETE', entityType, getEntityId),
 
   /**
    * Audit VIEW action
    */
   view: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.VIEW, entityType, getEntityId),
+    createAuditLog('VIEW', entityType, getEntityId),
 
   /**
    * Audit ARCHIVE action
    */
   archive: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.ARCHIVE, entityType, getEntityId),
+    createAuditLog('ARCHIVE', entityType, getEntityId),
 
   /**
    * Audit EXPORT action
    */
   export: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.EXPORT, entityType, getEntityId),
+    createAuditLog('EXPORT', entityType, getEntityId),
 
   /**
    * Audit SHARE action
    */
   share: (entityType: string, getEntityId: (req: AuthRequest) => string) =>
-    createAuditLog(AuditAction.SHARE, entityType, getEntityId),
+    createAuditLog('SHARE', entityType, getEntityId),
 };

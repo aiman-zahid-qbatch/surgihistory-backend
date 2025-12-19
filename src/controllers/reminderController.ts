@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import reminderService from '../services/reminderService';
-import { ReminderStatus } from '@prisma/client';
+
 import { logger } from '../config/logger';
 
 export class ReminderController {
@@ -145,7 +145,7 @@ export class ReminderController {
 
       const reminders = await reminderService.getRemindersByRecipient(
         userId,
-        status as ReminderStatus | undefined
+        status as string | undefined
       );
 
       res.json({ data: reminders });

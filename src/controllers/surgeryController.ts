@@ -4,7 +4,7 @@ import { logger } from '../config/logger';
 import { AuthRequest, UserRole } from '../middlewares/auth';
 import { prisma } from '../config/database';
 import notificationService from '../services/notificationService';
-import { NotificationType } from '@prisma/client';
+
 
 export class SurgeryController {
   async createSurgery(req: AuthRequest, res: Response, next: NextFunction) {
@@ -68,7 +68,7 @@ export class SurgeryController {
           await notificationService.createNotification({
             recipientId: patient.id,
             recipientRole: UserRole.PATIENT,
-            type: NotificationType.RECORD_UPDATE,
+            type: 'RECORD_UPDATE',
             title: 'New Surgery Record Added',
             message: `A new surgery record for ${procedureName} has been added to your medical history`,
             entityType: 'surgery',

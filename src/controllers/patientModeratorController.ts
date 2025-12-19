@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middlewares/auth';
 import patientModeratorService from '../services/patientModeratorService';
 import { logger } from '../config/logger';
-import { PrismaClient, AssignmentStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -172,7 +172,7 @@ export class PatientModeratorController {
       }
 
       // Get status filter from query
-      const status = req.query.status as AssignmentStatus | undefined;
+      const status = req.query.status as string | undefined;
 
       const assignments = await patientModeratorService.getAssignmentsByModerator(
         moderator.id,

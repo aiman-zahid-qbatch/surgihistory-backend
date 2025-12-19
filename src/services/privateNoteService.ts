@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { logger } from '../config/logger';
 
 const prisma = new PrismaClient();
@@ -10,7 +10,7 @@ interface CreatePrivateNoteData {
   title?: string;
   content: string;
   createdBy: string; // ID of the moderator who created this note
-  createdByRole: UserRole; // Role of the creator
+  createdByRole: string; // Role of the creator
   createdByName: string; // Name of the creator
   audioUrl?: string;
   audioDuration?: number;
@@ -327,19 +327,16 @@ export class PrivateNoteService {
             {
               title: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
             {
               content: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
             {
               transcriptionText: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
           ],

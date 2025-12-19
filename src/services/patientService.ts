@@ -1,6 +1,6 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { UserRole } from '@prisma/client';
+
 import notificationService from './notificationService';
 
 interface Patient {
@@ -22,7 +22,7 @@ interface CreatePatientData {
     create: {
       email: string;
       password: string;
-      role: UserRole;
+      role: string;
     };
   };
   patientId: string; // System-generated patient ID
@@ -57,6 +57,16 @@ export class PatientService {
     try {
       const { assignedModeratorIds, assignedBy, ...patientData } = data;
 
+      // Check if patient with this CNIC already exists
+      if (patientData.cnic) {
+        const existingPatient = await prisma.patient.findUnique({
+          where: { cnic: patientData.cnic },
+        });
+        if (existingPatient) {
+          throw new Error('Patient with this CNIC already exists');
+        }
+      }
+
       const patient = await prisma.patient.create({
         data: patientData,
         include: {
@@ -73,6 +83,7 @@ export class PatientService {
             patientId: patient.id,
             moderatorId,
             assignedBy: assignedBy,
+            status: 'ASSIGNED',
           })),
         });
 
@@ -229,6 +240,7 @@ export class PatientService {
               patientId: id,
               moderatorId,
               assignedBy: assignedBy,
+              status: 'ASSIGNED',
             })),
           });
 
@@ -318,7 +330,7 @@ export class PatientService {
             { isArchived: false },
             {
               OR: [
-                { fullName: { contains: searchTerm, mode: 'insensitive' } },
+                { fullName: { contains: searchTerm } },
                 { cnic: { contains: searchTerm } },
                 { contactNumber: { contains: searchTerm } },
               ],

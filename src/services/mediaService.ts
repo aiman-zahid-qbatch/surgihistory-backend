@@ -1,4 +1,4 @@
-import { PrismaClient, MediaType, UserRole, RecordVisibility } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { logger } from '../config/logger';
 import path from 'path';
 import fs from 'fs/promises';
@@ -10,21 +10,21 @@ interface CreateMediaData {
   patientId?: string;
   fileName: string;
   originalName: string;
-  fileType: MediaType;
   mimeType: string;
   fileUrl: string;
   thumbnailUrl?: string;
   fileSize: number;
   duration?: number;
   uploadedBy: string;
-  uploadedByRole: UserRole;
   uploadedByName?: string;
-  visibility?: RecordVisibility;
+    fileType: string;
+    uploadedByRole: string;
+    visibility?: string;
   includeInExport?: boolean;
 }
 
 interface UpdateMediaData {
-  visibility?: RecordVisibility;
+  visibility?: string;
   includeInExport?: boolean;
   transcriptionText?: string;
   hasTranscription?: boolean;
@@ -51,7 +51,7 @@ export class MediaService {
           uploadedBy: data.uploadedBy,
           uploadedByRole: data.uploadedByRole,
           uploadedByName: data.uploadedByName,
-          visibility: data.visibility || RecordVisibility.PUBLIC,
+            visibility: data.visibility || 'PUBLIC',
           includeInExport: data.includeInExport !== undefined ? data.includeInExport : true,
         },
         include: {
@@ -129,7 +129,7 @@ export class MediaService {
       };
 
       if (!includePrivate) {
-        whereClause.visibility = RecordVisibility.PUBLIC;
+          whereClause.visibility = 'PUBLIC';
       }
 
       const media = await prisma.media.findMany({
@@ -147,12 +147,12 @@ export class MediaService {
   /**
    * Get media by type
    */
-  async getMediaByType(followUpId: string, fileType: MediaType) {
+  async getMediaByType(followUpId: string, fileType: string) {
     try {
       const media = await prisma.media.findMany({
         where: {
           followUpId,
-          fileType,
+            fileType: fileType,
           isArchived: false,
         },
         orderBy: { createdAt: 'desc' },
@@ -218,8 +218,10 @@ export class MediaService {
     }
   ) {
     try {
-      const visibilityFilter = includePrivate ? {} : { visibility: RecordVisibility.PUBLIC };
-      const fileTypeFilter = options?.fileType ? { fileType: options.fileType as MediaType } : {};
+      let visibilityFilter = includePrivate ? {} : { visibility: 'PUBLIC' };
+      let fileTypeFilter = options?.fileType ? { fileType: options.fileType } : {};
+        visibilityFilter = includePrivate ? {} : { visibility: 'PUBLIC' };
+        fileTypeFilter = options?.fileType ? { fileType: options.fileType } : {};
 
       // Build where clause for OR condition: either linked via followUp OR directly to patient
       const media = await prisma.media.findMany({
@@ -284,8 +286,10 @@ export class MediaService {
     fileType?: string
   ) {
     try {
-      const visibilityFilter = includePrivate ? {} : { visibility: RecordVisibility.PUBLIC };
-      const fileTypeFilter = fileType ? { fileType: fileType as MediaType } : {};
+      let visibilityFilter = includePrivate ? {} : { visibility: 'PUBLIC' };
+      let fileTypeFilter = fileType ? { fileType: fileType } : {};
+        visibilityFilter = includePrivate ? {} : { visibility: 'PUBLIC' };
+        fileTypeFilter = fileType ? { fileType: fileType } : {};
 
       const count = await prisma.media.count({
         where: {
@@ -327,12 +331,14 @@ export class MediaService {
     order?: 'asc' | 'desc';
   }) {
     try {
-      const fileTypeFilter = options?.fileType ? { fileType: options.fileType as MediaType } : {};
-      const roleFilter = options?.uploadedByRole ? { uploadedByRole: options.uploadedByRole as UserRole } : {};
+      let fileTypeFilter = options?.fileType ? { fileType: options.fileType } : {};
+      let roleFilter = options?.uploadedByRole ? { uploadedByRole: options.uploadedByRole } : {};
+        fileTypeFilter = options?.fileType ? { fileType: options.fileType } : {};
+        roleFilter = options?.uploadedByRole ? { uploadedByRole: options.uploadedByRole } : {};
       const searchFilter = options?.search ? {
         OR: [
-          { originalName: { contains: options.search, mode: 'insensitive' as const } },
-          { uploadedByName: { contains: options.search, mode: 'insensitive' as const } },
+          { originalName: { contains: options.search } },
+          { uploadedByName: { contains: options.search } },
         ],
       } : {};
 
@@ -536,13 +542,11 @@ export class MediaService {
             {
               originalName: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
             {
               transcriptionText: {
                 contains: query,
-                mode: 'insensitive',
               },
             },
           ],

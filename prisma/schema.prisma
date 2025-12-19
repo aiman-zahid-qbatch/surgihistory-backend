@@ -5,88 +5,19 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  PATIENT
-  MODERATOR
-  SURGEON
-  ADMIN
-}
 
-enum RecordVisibility {
-  PRIVATE
-  PUBLIC
-}
 
-enum SurgeryRole {
-  PERFORMED
-  ASSISTED
-  SUPERVISED
-  OBSERVED
-}
 
-enum FollowUpStatus {
-  PENDING
-  COMPLETED
-  MISSED
-}
 
-enum MediaType {
-  IMAGE
-  PDF
-  AUDIO
-  VIDEO
-  DOCUMENT
-}
 
-enum ReminderChannel {
-  WHATSAPP
-  NOTIFICATION
-  EMAIL
-  SMS
-}
 
-enum ReminderStatus {
-  PENDING
-  SENT
-  FAILED
-  CANCELLED
-}
 
-enum AuditAction {
-  CREATE
-  UPDATE
-  VIEW
-  HIDE
-  ARCHIVE
-  DELETE
-  EXPORT
-  SHARE
-}
 
-enum NotificationType {
-  FOLLOW_UP_REMINDER
-  NEW_UPLOAD
-  DOCUMENT_UPLOADED
-  DOCUMENT_REQUESTED
-  RECORD_UPDATE
-  MISSED_APPOINTMENT
-  REVIEW_REQUEST
-  ASSIGNMENT_REQUEST
-  ASSIGNMENT_ACCEPTED
-  ASSIGNMENT_REJECTED
-  MODERATOR_CREATED
-  PATIENT_MEDIA_UPLOAD
-}
 
-enum AssignmentStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-}
 
 model User {
   id            String        @id @default(uuid())
@@ -94,7 +25,7 @@ model User {
   password      String
   name          String?
   profileImage  String?
-  role          UserRole
+  role          String
   isActive      Boolean       @default(true)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -131,7 +62,7 @@ model Patient {
   fatherName    String
   contactNumber String
   whatsappNumber String?
-  address       String        @db.Text
+  address       String
 
   assignedSurgeonId String?
   assignedSurgeon   Surgeon?    @relation("AssignedPatients", fields: [assignedSurgeonId], references: [id])
@@ -174,7 +105,7 @@ model PatientModerator {
   patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
   moderatorId String
   moderator   Moderator         @relation("PatientModerators", fields: [moderatorId], references: [id], onDelete: Cascade)
-  status      AssignmentStatus  @default(PENDING)
+  status      String
   assignedAt  DateTime          @default(now())
   assignedBy  String?           // ID of who assigned this moderator
   respondedAt DateTime?         // When moderator accepted/rejected
@@ -270,18 +201,18 @@ model Surgery {
   
   diagnosis       String
   customDiagnosis String?         // For custom entries not in predefined list
-  briefHistory    String          @db.Text
-  preOpFindings   String          @db.Text
+  briefHistory    String
+  preOpFindings   String
   procedureName   String
   customProcedure String?         // For custom procedures not in predefined list
-  procedureDetails String         @db.Text
-  surgeryRole     SurgeryRole
+  procedureDetails String
+  surgeryRole     String
   
   surgeryDate     DateTime
   surgeryTime     String?         // Store time separately if needed
   
   followUps       FollowUp[]
-  visibility      RecordVisibility @default(PUBLIC)
+  visibility      String
   
   // PDF Export Settings
   allowPatientExport Boolean      @default(true)
@@ -311,9 +242,9 @@ model FollowUp {
   
   followUpDate    DateTime
   scheduledTime   String?
-  description     String          @db.Text
-  observations    String?         @db.Text
-  status          FollowUpStatus  @default(PENDING)
+  description     String
+  observations    String?
+  status          String
   
   // Track updates from both sides
   lastDoctorUpdate DateTime?
@@ -323,7 +254,7 @@ model FollowUp {
   privateNotes    PrivateNote[]
   reminders       Reminder[]
   documentRequests DocumentRequest[]
-  visibility      RecordVisibility @default(PUBLIC)
+  visibility      String
 
   isArchived      Boolean         @default(false)
   archivedAt      DateTime?
@@ -350,7 +281,7 @@ model Media {
   
   fileName      String
   originalName  String
-  fileType      MediaType
+  fileType      String
   mimeType      String
   fileUrl       String
   thumbnailUrl  String?       // For images/videos
@@ -359,14 +290,14 @@ model Media {
   
   // AI transcription for audio
   hasTranscription Boolean    @default(false)
-  transcriptionText String?   @db.Text
+  transcriptionText String?
   
   uploadedBy    String
-  uploadedByRole UserRole
+  uploadedByRole String
   uploadedByName String?      // Denormalized for quick access
   
   // Visibility control
-  visibility    RecordVisibility @default(PUBLIC)
+  visibility    String
   includeInExport Boolean     @default(true)
 
   // Link to document request if uploaded in response to a request
@@ -390,12 +321,12 @@ model PatientUpload {
   
   fileName      String
   originalName  String
-  fileType      MediaType
+  fileType      String
   mimeType      String
   fileUrl       String
   thumbnailUrl  String?
   fileSize      Int
-  description   String?       @db.Text
+  description   String?
   category      String?       // e.g., "lab_report", "xray", "prescription"
   
   // Review tracking
@@ -403,7 +334,7 @@ model PatientUpload {
   reviewedBy    String?
   reviewedByName String?
   reviewedAt    DateTime?
-  reviewComment String?       @db.Text
+  reviewComment String?
   
   // Notification tracking
   notificationSent Boolean    @default(false)
@@ -419,11 +350,6 @@ model PatientUpload {
   @@index([createdAt])
 }
 
-enum DocumentRequestStatus {
-  PENDING
-  UPLOADED
-  REJECTED
-}
 
 model DocumentRequest {
   id            String                @id @default(uuid())
@@ -437,9 +363,9 @@ model DocumentRequest {
   followUp      FollowUp?             @relation(fields: [followUpId], references: [id], onDelete: Cascade)
 
   title         String
-  description   String?               @db.Text
+  description   String?
   category      String?               // e.g., "lab_report", "xray", "prescription"
-  status        DocumentRequestStatus @default(PENDING)
+  status        String
 
   // When patient uploads document in response
   uploadedMediaId String?             @unique
@@ -448,7 +374,7 @@ model DocumentRequest {
   requestedAt   DateTime              @default(now())
   uploadedAt    DateTime?
   rejectedAt    DateTime?
-  rejectionReason String?             @db.Text
+  rejectionReason String?
 
   @@index([patientId])
   @@index([surgeonId])
@@ -468,21 +394,21 @@ model PrivateNote {
 
   surgeryId     String?       // Can also attach to surgery directly
   title         String?
-  content       String        @db.Text
+  content       String
 
   // Creator information (moderator who created this note)
   createdBy     String        // ID of the moderator who created this note
-  createdByRole UserRole      // Role of the creator (MODERATOR, SURGEON, etc.)
+  createdByRole String        // Role of the creator (MODERATOR, SURGEON, etc.)
   createdByName String        // Name of the creator for display
 
   // Audio notes
   audioUrl      String?
   audioDuration Int?          // In seconds
   hasTranscription Boolean    @default(false)
-  transcriptionText String?   @db.Text
+  transcriptionText String?
 
   // Attachments for private notes
-  attachments   Json?         // Array of {fileName, fileUrl, fileType}
+  attachments   String?       // was Json
 
   isArchived    Boolean       @default(false)
   archivedAt    DateTime?
@@ -507,19 +433,19 @@ model Reminder {
   
   // Who receives the reminder
   recipientId   String
-  recipientRole UserRole
+  recipientRole String
   recipientName String?
   recipientPhone String?
   
   // Reminder details
   title         String
-  message       String        @db.Text
+  message       String
   scheduledFor  DateTime
   sentAt        DateTime?
   
   // Configuration
-  channel       ReminderChannel
-  status        ReminderStatus  @default(PENDING)
+  channel       String
+  status        String
   
   // Repeat settings
   isRecurring   Boolean       @default(false)
@@ -547,16 +473,16 @@ model Notification {
   
   // Recipient
   recipientId   String
-  recipientRole UserRole
+  recipientRole String
   patientId     String?
   patient       Patient?      @relation(fields: [patientId], references: [id], onDelete: Cascade)
   surgeonId     String?
   surgeon       Surgeon?      @relation(fields: [surgeonId], references: [id], onDelete: Cascade)
   
   // Notification content
-  type          NotificationType
+  type          String
   title         String
-  message       String        @db.Text
+  message       String
   
   // Related entity
   entityType    String?       // "patient_upload", "follow_up", "surgery"
@@ -586,13 +512,13 @@ model AuditLog {
   userId        String?
   user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  action        AuditAction
+  action        String
   entityType    String        // "patient", "surgery", "followup", "media", etc.
   entityId      String
   
   // Detailed change tracking
-  changes       Json?         // Before/after values
-  description   String?       @db.Text
+  changes       String?       // was Json
+  description   String?
   
   // Request metadata
   ipAddress     String?
@@ -618,15 +544,15 @@ model PDFExport {
   
   // Who requested the export
   requestedBy   String
-  requestedByRole UserRole
+  requestedByRole String
   
   // What was exported
   patientId     String
-  surgeryIds    String[]      // Array of surgery IDs included
-  followUpIds   String[]      // Array of follow-up IDs included
+  surgeryIds    String?       // was String[]
+  followUpIds   String?       // was String[]
   
   // Export configuration
-  includeConfig Json          // {diagnosis: true, images: false, privateNotes: false, etc.}
+  includeConfig String        // was Json
   exportType    String        // "patient_copy", "doctor_copy", "full_report"
   
   // PDF details
@@ -651,7 +577,7 @@ model PDFExport {
 model SystemSetting {
   id            String        @id @default(uuid())
   key           String        @unique
-  value         String        @db.Text
+  value         String
   dataType      String        @default("string") // "string", "number", "boolean", "json"
   category      String?       // "reminder", "notification", "export", "security"
   description   String?

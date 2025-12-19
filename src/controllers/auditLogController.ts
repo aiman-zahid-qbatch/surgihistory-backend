@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { auditLogService, AuditLogFilters } from '../services/auditLogService';
 import { logger } from '../config/logger';
 import { AuthRequest } from '../middlewares/auth';
-import { AuditAction } from '@prisma/client';
+
 
 export class AuditLogController {
   /**
@@ -30,7 +30,7 @@ export class AuditLogController {
       }
 
       if (action) {
-        filters.action = action as AuditAction;
+        filters.action = action as string;
       }
 
       if (entityType) {
@@ -179,7 +179,7 @@ export class AuditLogController {
       }
 
       if (action) {
-        filters.action = action as AuditAction;
+        filters.action = action as string;
       }
 
       if (entityType) {

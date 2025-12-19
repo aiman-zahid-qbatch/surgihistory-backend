@@ -1,6 +1,6 @@
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { SurgeryRole, RecordVisibility } from '@prisma/client';
+
 
 interface Surgery {
   id: string;
@@ -13,10 +13,10 @@ interface Surgery {
   procedureName: string;
   customProcedure?: string;
   procedureDetails: string;
-  surgeryRole: SurgeryRole;
+  surgeryRole: string;
   surgeryDate: Date;
   surgeryTime?: string;
-  visibility: RecordVisibility;
+  visibility: string;
   isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -34,10 +34,10 @@ interface CreateSurgeryData {
   procedureName: string;
   customProcedure?: string;
   procedureDetails: string;
-  surgeryRole: SurgeryRole;
+  surgeryRole: string;
   surgeryDate: Date;
   surgeryTime?: string;
-  visibility?: RecordVisibility;
+  visibility?: string;
   createdBy: string;
 }
 
@@ -49,10 +49,10 @@ interface UpdateSurgeryData {
   procedureName?: string;
   customProcedure?: string;
   procedureDetails?: string;
-  surgeryRole?: SurgeryRole;
+  surgeryRole?: string;
   surgeryDate?: Date;
   surgeryTime?: string;
-  visibility?: RecordVisibility;
+  visibility?: string;
   lastModifiedBy?: string;
 }
 
@@ -73,7 +73,7 @@ export class SurgeryService {
           surgeryRole: data.surgeryRole,
           surgeryDate: data.surgeryDate,
           surgeryTime: data.surgeryTime,
-          visibility: data.visibility || RecordVisibility.PUBLIC,
+          visibility: data.visibility || 'PUBLIC',
           createdBy: data.createdBy,
         },
         include: {
@@ -149,8 +149,8 @@ export class SurgeryService {
 
       if (options?.search) {
         whereClause.OR = [
-          { diagnosis: { contains: options.search, mode: 'insensitive' } },
-          { procedureName: { contains: options.search, mode: 'insensitive' } },
+          { diagnosis: { contains: options.search } },
+          { procedureName: { contains: options.search } },
         ];
       }
 
@@ -210,9 +210,9 @@ export class SurgeryService {
 
       if (options?.search) {
         whereClause.OR = [
-          { diagnosis: { contains: options.search, mode: 'insensitive' } },
-          { procedureName: { contains: options.search, mode: 'insensitive' } },
-          { patient: { fullName: { contains: options.search, mode: 'insensitive' } } },
+          { diagnosis: { contains: options.search } },
+          { procedureName: { contains: options.search } },
+          { patient: { fullName: { contains: options.search } } },
         ];
       }
 
@@ -403,8 +403,8 @@ export class SurgeryService {
             { isArchived: false },
             {
               OR: [
-                { diagnosis: { contains: searchTerm, mode: 'insensitive' } },
-                { procedureName: { contains: searchTerm, mode: 'insensitive' } },
+                { diagnosis: { contains: searchTerm } },
+                { procedureName: { contains: searchTerm } },
               ],
             },
           ],

@@ -6,7 +6,7 @@ export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
     try {
       const { email, password, role, fullName, specialization, phoneNumber } = req.body;
-      
+
       const ipAddress = req.ip || req.socket.remoteAddress;
       const userAgent = req.headers['user-agent'];
 
@@ -18,7 +18,7 @@ export class AuthController {
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password: _, ...userWithoutPassword } = user;
-      
+
       res.status(201).json({
         message: 'User registered successfully',
         user: userWithoutPassword,
@@ -35,7 +35,7 @@ export class AuthController {
   async login(req: Request, res: Response): Promise<void> {
     try {
       const { email, password } = req.body;
-      
+
       const ipAddress = req.ip || req.socket.remoteAddress;
       const userAgent = req.headers['user-agent'];
 
@@ -53,12 +53,6 @@ export class AuthController {
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
 
-      res.cookie('sessionId', result.sessionId, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-      });
 
       res.status(200).json({
         message: 'Login successful',
@@ -119,12 +113,6 @@ export class AuthController {
         return;
       }
 
-      const sessionId = req.cookies.sessionId || req.body.sessionId;
-      
-      if (!sessionId) {
-        res.status(400).json({ message: 'Session ID required' });
-        return;
-      }
 
       const ipAddress = req.ip || req.socket.remoteAddress;
       const userAgent = req.headers['user-agent'];
@@ -132,7 +120,6 @@ export class AuthController {
       await authService.logout(
         req.user.id,
         req.token,
-        sessionId,
         ipAddress,
         userAgent
       );
@@ -158,7 +145,7 @@ export class AuthController {
       }
 
       const { currentPassword, newPassword } = req.body;
-      
+
       const ipAddress = req.ip || req.socket.remoteAddress;
       const userAgent = req.headers['user-agent'];
 
@@ -173,8 +160,8 @@ export class AuthController {
       res.clearCookie('refreshToken');
       res.clearCookie('sessionId');
 
-      res.status(200).json({ 
-        message: 'Password changed successfully. Please login again.' 
+      res.status(200).json({
+        message: 'Password changed successfully. Please login again.'
       });
     } catch (error) {
       if (error instanceof Error) {

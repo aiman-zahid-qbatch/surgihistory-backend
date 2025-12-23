@@ -2,15 +2,6 @@ import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-import {
-  setSession,
-  deleteSession,
-  setRefreshToken,
-  getRefreshToken,
-  deleteRefreshToken,
-  blacklistToken,
-} from '../config/redis';
 
 export enum UserRole {
   PATIENT = 'PATIENT',
@@ -53,7 +44,6 @@ interface LoginResponse {
   user: Omit<User, 'password'>;
   accessToken: string;
   refreshToken: string;
-  sessionId: string;
 }
 
 interface RefreshTokenResponse {
@@ -79,7 +69,6 @@ interface AuditLogData {
 export class AuthService {
   private readonly ACCESS_TOKEN_EXPIRY = '15m';
   private readonly REFRESH_TOKEN_EXPIRY = '30d';
-  private readonly SESSION_EXPIRY = 30 * 24 * 60 * 60;
 
   private generateAccessToken(user: User): string {
     const jwtSecret = process.env.JWT_SECRET;
@@ -243,27 +232,27 @@ export class AuthService {
       if (!user.isActive) {
         // Check if the user is a surgeon with pending approval
         const isPendingApproval = user.role === UserRole.SURGEON;
-        
+
         await this.createAuditLog({
           userId: user.id,
           action: 'VIEW',
           entityType: 'auth',
           entityId: 'login_attempt',
-          description: isPendingApproval 
-            ? 'Login attempt on pending approval account' 
+          description: isPendingApproval
+            ? 'Login attempt on pending approval account'
             : 'Login attempt on deactivated account',
           ipAddress,
           userAgent,
           requestMethod: 'POST',
           requestPath: '/api/auth/login',
           success: false,
-          errorMessage: isPendingApproval 
-            ? 'Account pending approval' 
+          errorMessage: isPendingApproval
+            ? 'Account pending approval'
             : 'Account is deactivated',
         });
         throw new Error(
-          isPendingApproval 
-            ? 'Your account is pending admin approval. You will receive an email once approved.' 
+          isPendingApproval
+            ? 'Your account is pending admin approval. You will receive an email once approved.'
             : 'Your account has been deactivated by admin. You are no longer a user of this system.'
         );
       }
@@ -289,12 +278,11 @@ export class AuthService {
 
       const accessToken = this.generateAccessToken(user);
       const refreshToken = this.generateRefreshToken(user);
-      const sessionId = uuidv4();
 
       // Store refresh token in database
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
-      
+
       await prisma.refreshToken.create({
         data: {
           token: refreshToken,
@@ -302,9 +290,6 @@ export class AuthService {
           expiresAt,
         },
       });
-
-      await setSession(sessionId, user.id, this.SESSION_EXPIRY);
-      await setRefreshToken(user.id, refreshToken, this.SESSION_EXPIRY);
 
       await this.createAuditLog({
         userId: user.id,
@@ -321,13 +306,13 @@ export class AuthService {
 
       logger.info(`User logged in: ${user.email}`);
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password: _, ...userWithoutPassword } = user;
 
       return {
         user: userWithoutPassword,
         accessToken,
         refreshToken,
-        sessionId,
       };
     } catch (error) {
       logger.error('Error logging in user:', error);
@@ -406,24 +391,6 @@ export class AuthService {
         throw new Error('Refresh token expired');
       }
 
-      // Also check Redis (for backward compatibility and faster validation)
-      // If not in Redis but valid in DB, that's okay - we'll re-populate it
-      const redisToken = await getRefreshToken(decoded.id);
-      if (redisToken && redisToken !== refreshToken) {
-        await this.createAuditLog({
-          userId: decoded.id,
-          action: 'VIEW',
-          entityType: 'auth',
-          entityId: 'token_refresh',
-          description: 'Token mismatch between Redis and database',
-          ipAddress,
-          userAgent,
-          success: false,
-          errorMessage: 'Invalid refresh token',
-        });
-        throw new Error('Invalid refresh token');
-      }
-
       const user = storedToken.user as User;
 
       if (!user || !user.isActive) {
@@ -442,7 +409,7 @@ export class AuthService {
       // Store new refresh token in database
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
-      
+
       try {
         await prisma.refreshToken.create({
           data: {
@@ -468,8 +435,6 @@ export class AuthService {
           throw error;
         }
       }
-
-      await setRefreshToken(user.id, newRefreshToken, this.SESSION_EXPIRY);
 
       await this.createAuditLog({
         userId: user.id,
@@ -497,7 +462,6 @@ export class AuthService {
   async logout(
     userId: string,
     accessToken: string,
-    sessionId: string,
     ipAddress?: string,
     userAgent?: string
   ): Promise<void> {
@@ -513,9 +477,16 @@ export class AuthService {
         },
       });
 
-      await deleteSession(sessionId);
-      await deleteRefreshToken(userId);
-      await blacklistToken(accessToken, 15 * 60);
+      // Blacklist the access token
+      const decoded = jwt.decode(accessToken) as { exp?: number };
+      const expiresAt = decoded?.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000);
+
+      await prisma.blacklistedToken.create({
+        data: {
+          token: accessToken,
+          expiresAt,
+        },
+      });
 
       await this.createAuditLog({
         userId,
@@ -577,7 +548,11 @@ export class AuthService {
         data: { password: hashedPassword },
       });
 
-      await deleteRefreshToken(userId);
+      // Revoke all tokens on password change
+      await prisma.refreshToken.updateMany({
+        where: { userId, isRevoked: false },
+        data: { isRevoked: true },
+      });
 
       await this.createAuditLog({
         userId,
@@ -612,6 +587,7 @@ export class AuthService {
         return null;
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { password: _, ...userWithoutPassword } = user;
       return userWithoutPassword;
     } catch (error) {
@@ -622,17 +598,25 @@ export class AuthService {
 
   async cleanupExpiredTokens(): Promise<void> {
     try {
-      const result = await prisma.refreshToken.deleteMany({
+      // Clean up refresh tokens
+      const refreshResult = await prisma.refreshToken.deleteMany({
         where: {
           OR: [
             { expiresAt: { lt: new Date() } },
-            { isRevoked: true, updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } }, // Delete revoked tokens older than 7 days
+            { isRevoked: true, updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
           ],
         },
       });
 
-      if (result.count > 0) {
-        logger.info(`Cleaned up ${result.count} expired/revoked refresh tokens`);
+      // Clean up blacklisted tokens
+      const blacklistResult = await prisma.blacklistedToken.deleteMany({
+        where: {
+          expiresAt: { lt: new Date() },
+        },
+      });
+
+      if (refreshResult.count > 0 || blacklistResult.count > 0) {
+        logger.info(`Cleaned up ${refreshResult.count} refresh tokens and ${blacklistResult.count} blacklisted tokens`);
       }
     } catch (error) {
       logger.error('Error cleaning up expired tokens:', error);

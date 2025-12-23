@@ -8,7 +8,7 @@ import { logger } from './config/logger';
 import { errorHandler } from './middlewares/errorHandler';
 import routes from './routes';
 import { connectDatabase, disconnectDatabase } from './config/database';
-import { connectRedis, disconnectRedis } from './config/redis';
+
 import { authService } from './services/authService';
 import { initializeSocket } from './config/socket';
 
@@ -45,7 +45,7 @@ app.use(errorHandler);
 const gracefulShutdown = async () => {
   logger.info('Shutting down gracefully...');
   await disconnectDatabase();
-  await disconnectRedis();
+
   process.exit(0);
 };
 
@@ -57,9 +57,7 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDatabase();
-    
-    // Connect to Redis
-    await connectRedis();
+
 
     // Initialize Socket.IO
     initializeSocket(httpServer);

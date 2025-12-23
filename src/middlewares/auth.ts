@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { isTokenBlacklisted } from '../config/redis';
+import { prisma } from '../config/database';
 
 export enum UserRole {
   PATIENT = 'PATIENT',
@@ -31,9 +31,12 @@ export const authenticate = async (
   }
 
   try {
-    // Check if token is blacklisted
-    const isBlacklisted = await isTokenBlacklisted(token);
-    if (isBlacklisted) {
+    // Check if token is blacklisted in DB
+    const blacklisted = await prisma.blacklistedToken.findUnique({
+      where: { token }
+    });
+
+    if (blacklisted) {
       res.status(401).json({ message: 'Token has been revoked' });
       return;
     }
@@ -43,7 +46,7 @@ export const authenticate = async (
       role: UserRole;
       email: string;
     };
-    
+
     req.user = decoded;
     req.token = token; // Store token for logout
     next();

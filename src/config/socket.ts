@@ -3,13 +3,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { logger } from './logger';
 import { UserRole } from '../middlewares/auth';
-import { redisClient } from './redis';
 
 let io: SocketIOServer;
-
-// Socket session management with Redis
-const SOCKET_SESSION_PREFIX = 'socket:session:';
-const SOCKET_SESSION_TTL = 24 * 60 * 60; // 24 hours
 
 interface SocketSession {
   socketId: string;
@@ -20,34 +15,33 @@ interface SocketSession {
   lastPing: string;
 }
 
-// Store socket session in Redis
+// Socket session management (In-memory)
+// Note: This works for single-server deployments. For multi-server, use a shared store.
+const socketSessions = new Map<string, SocketSession>();
+
+// Store socket session in memory
 const storeSocketSession = async (userId: string, session: SocketSession): Promise<void> => {
   try {
-    await redisClient.setEx(
-      `${SOCKET_SESSION_PREFIX}${userId}`,
-      SOCKET_SESSION_TTL,
-      JSON.stringify(session)
-    );
+    socketSessions.set(userId, session);
   } catch (error) {
     logger.error('Failed to store socket session:', error);
   }
 };
 
-// Get socket session from Redis
+// Get socket session from memory
 const getSocketSession = async (userId: string): Promise<SocketSession | null> => {
   try {
-    const session = await redisClient.get(`${SOCKET_SESSION_PREFIX}${userId}`);
-    return session ? JSON.parse(session) : null;
+    return socketSessions.get(userId) || null;
   } catch (error) {
     logger.error('Failed to get socket session:', error);
     return null;
   }
 };
 
-// Remove socket session from Redis
+// Remove socket session from memory
 const removeSocketSession = async (userId: string): Promise<void> => {
   try {
-    await redisClient.del(`${SOCKET_SESSION_PREFIX}${userId}`);
+    socketSessions.delete(userId);
   } catch (error) {
     logger.error('Failed to remove socket session:', error);
   }
@@ -135,7 +129,7 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
 
     logger.info(`Client connected: ${userId} (${userEmail}), Socket ID: ${socket.id}`);
 
-    // Store session in Redis
+    // Store session
     await storeSocketSession(userId, {
       socketId: socket.id,
       userId,
@@ -164,12 +158,12 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     // Handle disconnection
     socket.on('disconnect', async (reason: string) => {
       logger.info(`Client disconnected: ${userId} (${userEmail}), Reason: ${reason}`);
-      
+
       // Only remove session if this is the current socket
       const session = await getSocketSession(userId);
       if (session && session.socketId === socket.id) {
         // Don't immediately remove - allow for reconnection
-        // Session will expire naturally or be replaced by new connection
+        // Session will be replaced by new connection
         if (reason === 'client namespace disconnect' || reason === 'server namespace disconnect') {
           await removeSocketSession(userId);
         }
@@ -190,7 +184,7 @@ export const initializeSocket = (httpServer: HTTPServer): SocketIOServer => {
     });
   });
 
-  logger.info('Socket.IO server initialized with Redis session support');
+  logger.info('Socket.IO server initialized with In-memory session support');
   return io;
 };
 
@@ -204,12 +198,12 @@ export const getIO = (): SocketIOServer => {
 export const emitNotification = async (userId: string, notification: any) => {
   try {
     const io = getIO();
-    
-    // Get user's socket session from Redis
+
+    // Check if user has a socket session
     const session = await getSocketSession(userId);
-    
+
     if (session) {
-      // Emit to specific socket if session exists
+      // Emit to specific room for user
       io.to(`user:${userId}`).emit('notification', notification);
       logger.info(`Notification emitted to user ${userId}: ${notification.title}`);
     } else {
@@ -234,17 +228,7 @@ export const emitToRole = (role: UserRole, event: string, data: any) => {
 // Get all connected users (for debugging/admin)
 export const getConnectedUsers = async (): Promise<SocketSession[]> => {
   try {
-    const keys = await redisClient.keys(`${SOCKET_SESSION_PREFIX}*`);
-    const sessions: SocketSession[] = [];
-    
-    for (const key of keys) {
-      const session = await redisClient.get(key);
-      if (session) {
-        sessions.push(JSON.parse(session));
-      }
-    }
-    
-    return sessions;
+    return Array.from(socketSessions.values());
   } catch (error) {
     logger.error('Failed to get connected users:', error);
     return [];

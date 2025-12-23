@@ -37,6 +37,16 @@ model User {
   refreshTokens RefreshToken[]
 }
 
+model BlacklistedToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
 model RefreshToken {
   id            String        @id @default(uuid())
   token         String        @unique

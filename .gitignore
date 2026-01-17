@@ -7,3 +7,6 @@ uploads/
 .DS_Store
 coverage/
 .vscode/
+dev.db
+/prisma/dev.db
+/prisma/prisma/dev.db

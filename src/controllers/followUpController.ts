@@ -289,6 +289,33 @@ export class FollowUpController {
         isDoctor
       );
 
+      // Notify patient about the follow-up update
+      try {
+        const followUpWithDetails = await prisma.followUp.findUnique({
+          where: { id },
+          include: {
+            surgery: {
+              include: {
+                patient: { select: { id: true } },
+              },
+            },
+            surgeon: { select: { fullName: true } },
+          },
+        });
+
+        if (followUpWithDetails?.surgery?.patient && followUpWithDetails.surgeon) {
+          await notificationService.notifyPatientFollowUpUpdated(
+            followUpWithDetails.surgery.patient.id,
+            id,
+            followUpWithDetails.surgeon.fullName,
+            'updated'
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending follow-up update notification:', notifError);
+        // Don't fail the update if notification fails
+      }
+
       res.json({
         success: true,
         data: followUp,

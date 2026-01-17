@@ -31,7 +31,7 @@ app.use(cookieParser()); // Parse cookies
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Routes
-app.use('/api', routes);
+app.use('/', routes);
 
 // Health check
 app.get('/health', (_req, res) => {

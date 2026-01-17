@@ -610,6 +610,379 @@ class NotificationService {
       throw error;
     }
   }
+
+  /**
+   * Notify all admins about a system event
+   */
+  async notifyAllAdmins(
+    type: string,
+    title: string,
+    message: string,
+    entityType?: string,
+    entityId?: string,
+    priority: string = 'normal',
+    badgeColor: string = 'blue'
+  ): Promise<void> {
+    try {
+      // Get all admin users
+      const adminUsers = await prisma.user.findMany({
+        where: {
+          role: 'ADMIN',
+          isActive: true,
+        },
+        select: { id: true },
+      });
+
+      // Create notification for each admin
+      for (const admin of adminUsers) {
+        await this.createNotification({
+          recipientId: admin.id,
+          recipientRole: 'ADMIN',
+          type,
+          title,
+          message,
+          entityType,
+          entityId,
+          priority,
+          badgeColor,
+        });
+      }
+
+      logger.info(`Notified ${adminUsers.length} admins: ${title}`);
+    } catch (error) {
+      logger.error('Error notifying all admins:', error);
+      // Don't throw - admin notifications should not block the main operation
+    }
+  }
+
+  /**
+   * Notify admins when a new surgeon signs up
+   */
+  async notifySurgeonSignup(
+    surgeonId: string,
+    surgeonName: string,
+    surgeonEmail: string
+  ): Promise<void> {
+    try {
+      await this.notifyAllAdmins(
+        'SURGEON_SIGNUP',
+        'New Surgeon Registration',
+        `A new surgeon "${surgeonName}" (${surgeonEmail}) has registered and is awaiting approval.`,
+        'surgeon',
+        surgeonId,
+        'high',
+        'orange'
+      );
+    } catch (error) {
+      logger.error('Error creating surgeon signup notification:', error);
+    }
+  }
+
+  /**
+   * Notify admins when a new user is created
+   */
+  async notifyUserCreated(
+    userId: string,
+    userName: string,
+    userEmail: string,
+    userRole: string
+  ): Promise<void> {
+    try {
+      await this.notifyAllAdmins(
+        'USER_CREATED',
+        'New User Created',
+        `A new ${userRole.toLowerCase()} "${userName || userEmail}" has been created.`,
+        'user',
+        userId,
+        'normal',
+        'green'
+      );
+    } catch (error) {
+      logger.error('Error creating user created notification:', error);
+    }
+  }
+
+  /**
+   * Notify surgeon when their account is approved
+   */
+  async notifySurgeonApproved(
+    surgeonUserId: string,
+    surgeonId: string
+  ): Promise<void> {
+    try {
+      // Get surgeon details
+      const surgeon = await prisma.surgeon.findUnique({
+        where: { id: surgeonId },
+        select: { userId: true },
+      });
+
+      if (surgeon) {
+        await this.createNotification({
+          recipientId: surgeon.userId,
+          recipientRole: 'SURGEON',
+          type: 'ACCOUNT_APPROVED',
+          title: 'Account Approved',
+          message: 'Your surgeon account has been approved. You can now access all features.',
+          entityType: 'user',
+          entityId: surgeonUserId,
+          priority: 'high',
+          badgeColor: 'green',
+          surgeonId,
+        });
+      }
+    } catch (error) {
+      logger.error('Error creating surgeon approved notification:', error);
+    }
+  }
+
+  /**
+   * Notify surgeon when their account is rejected
+   */
+  async notifySurgeonRejected(
+    surgeonEmail: string
+  ): Promise<void> {
+    try {
+      // Note: Since the user is being deleted, we can't send them a notification
+      // In a real system, you might want to send an email instead
+      logger.info(`Surgeon registration rejected for: ${surgeonEmail}`);
+    } catch (error) {
+      logger.error('Error handling surgeon rejection:', error);
+    }
+  }
+
+  /**
+   * Notify surgeon when patient uploads a file
+   */
+  async notifySurgeonPatientUpload(
+    surgeonId: string,
+    patientName: string,
+    patientId: string,
+    uploadId: string,
+    fileName: string
+  ): Promise<void> {
+    try {
+      // Get surgeon user ID
+      const surgeon = await prisma.surgeon.findUnique({
+        where: { id: surgeonId },
+        select: { userId: true },
+      });
+
+      if (surgeon) {
+        await this.createNotification({
+          recipientId: surgeon.userId,
+          recipientRole: 'SURGEON',
+          type: 'PATIENT_UPLOAD',
+          title: 'New Patient Upload',
+          message: `Patient "${patientName}" has uploaded a new file: ${fileName}`,
+          entityType: 'patient_upload',
+          entityId: uploadId,
+          priority: 'normal',
+          badgeColor: 'green',
+          patientId,
+          surgeonId,
+        });
+      }
+    } catch (error) {
+      logger.error('Error creating patient upload notification for surgeon:', error);
+    }
+  }
+
+  /**
+   * Notify patient when a document is requested
+   */
+  async notifyPatientDocumentRequest(
+    patientId: string,
+    requestId: string,
+    title: string,
+    _requestedBy: string,
+    requestedByRole: string
+  ): Promise<void> {
+    try {
+      // Get patient user ID
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { userId: true },
+      });
+
+      if (patient) {
+        await this.createNotification({
+          recipientId: patient.userId,
+          recipientRole: 'PATIENT',
+          type: 'DOCUMENT_REQUESTED',
+          title: 'Document Request',
+          message: `${requestedByRole === 'SURGEON' ? 'Your doctor' : 'A moderator'} has requested: "${title}"`,
+          entityType: 'document_request',
+          entityId: requestId,
+          priority: 'high',
+          badgeColor: 'orange',
+          patientId,
+        });
+      }
+    } catch (error) {
+      logger.error('Error creating document request notification:', error);
+    }
+  }
+
+  /**
+   * Notify surgeon/moderator when patient fulfills a document request
+   */
+  async notifyDocumentRequestFulfilled(
+    requestId: string,
+    patientName: string,
+    patientId: string,
+    surgeonId?: string,
+    moderatorId?: string
+  ): Promise<void> {
+    try {
+      // Notify surgeon if exists
+      if (surgeonId) {
+        const surgeon = await prisma.surgeon.findUnique({
+          where: { id: surgeonId },
+          select: { userId: true },
+        });
+
+        if (surgeon) {
+          await this.createNotification({
+            recipientId: surgeon.userId,
+            recipientRole: 'SURGEON',
+            type: 'DOCUMENT_REQUEST_FULFILLED',
+            title: 'Document Request Fulfilled',
+            message: `Patient "${patientName}" has uploaded the requested document.`,
+            entityType: 'document_request',
+            entityId: requestId,
+            priority: 'normal',
+            badgeColor: 'green',
+            patientId,
+            surgeonId,
+          });
+        }
+      }
+
+      // Notify moderator if exists
+      if (moderatorId) {
+        const moderator = await prisma.moderator.findUnique({
+          where: { id: moderatorId },
+          select: { userId: true },
+        });
+
+        if (moderator) {
+          await this.createNotification({
+            recipientId: moderator.userId,
+            recipientRole: 'MODERATOR',
+            type: 'DOCUMENT_REQUEST_FULFILLED',
+            title: 'Document Request Fulfilled',
+            message: `Patient "${patientName}" has uploaded the requested document.`,
+            entityType: 'document_request',
+            entityId: requestId,
+            priority: 'normal',
+            badgeColor: 'green',
+            patientId,
+          });
+        }
+      }
+    } catch (error) {
+      logger.error('Error creating document request fulfilled notification:', error);
+    }
+  }
+
+  /**
+   * Notify patient when follow-up is updated
+   */
+  async notifyPatientFollowUpUpdated(
+    patientId: string,
+    followUpId: string,
+    surgeonName: string,
+    updateType: string
+  ): Promise<void> {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { userId: true },
+      });
+
+      if (patient) {
+        await this.createNotification({
+          recipientId: patient.userId,
+          recipientRole: 'PATIENT',
+          type: 'FOLLOW_UP_UPDATED',
+          title: 'Follow-up Updated',
+          message: `Dr. ${surgeonName} has ${updateType} your follow-up appointment.`,
+          entityType: 'follow_up',
+          entityId: followUpId,
+          priority: 'normal',
+          badgeColor: 'yellow',
+          patientId,
+        });
+      }
+    } catch (error) {
+      logger.error('Error creating follow-up updated notification:', error);
+    }
+  }
+
+  /**
+   * Notify patient when surgery record is updated
+   */
+  async notifyPatientSurgeryUpdated(
+    patientId: string,
+    surgeryId: string,
+    procedureName: string
+  ): Promise<void> {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { userId: true },
+      });
+
+      if (patient) {
+        await this.createNotification({
+          recipientId: patient.userId,
+          recipientRole: 'PATIENT',
+          type: 'SURGERY_UPDATED',
+          title: 'Surgery Record Updated',
+          message: `Your surgery record for "${procedureName}" has been updated.`,
+          entityType: 'surgery',
+          entityId: surgeryId,
+          priority: 'normal',
+          badgeColor: 'blue',
+          patientId,
+        });
+      }
+    } catch (error) {
+      logger.error('Error creating surgery updated notification:', error);
+    }
+  }
+
+  /**
+   * Notify patient when they are assigned to a moderator
+   */
+  async notifyPatientModeratorAssigned(
+    patientId: string,
+    moderatorName: string
+  ): Promise<void> {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { userId: true },
+      });
+
+      if (patient) {
+        await this.createNotification({
+          recipientId: patient.userId,
+          recipientRole: 'PATIENT',
+          type: 'MODERATOR_ASSIGNED',
+          title: 'Care Team Updated',
+          message: `${moderatorName} has been assigned as your care coordinator.`,
+          entityType: 'patient',
+          entityId: patientId,
+          priority: 'normal',
+          badgeColor: 'blue',
+          patientId,
+        });
+      }
+    } catch (error) {
+      logger.error('Error creating moderator assigned notification:', error);
+    }
+  }
 }
 
 export default new NotificationService();

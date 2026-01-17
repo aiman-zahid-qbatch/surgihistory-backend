@@ -43,6 +43,7 @@ class EmailService {
   }
 
   async sendWelcomeEmail(email: string, name: string, password: string, role: string): Promise<boolean> {
+    const loginUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const subject = 'Welcome to SurgiHistory - Your Account Details';
     
     const html = `
@@ -145,6 +146,10 @@ class EmailService {
             
             <p>You can now log in to the system using these credentials.</p>
             
+            <p style="text-align: center; margin: 30px 0;">
+              <a href="${loginUrl}/login" style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Login to SurgiHistory</a>
+            </p>
+            
             <p>If you have any questions or need assistance, please contact your system administrator.</p>
             
             <p>Best regards,<br/>
@@ -176,6 +181,8 @@ IMPORTANT SECURITY NOTICE:
 - Keep this email secure or delete it after changing your password
 
 You can now log in to the system using these credentials.
+
+Login URL: ${loginUrl}/login
 
 If you have any questions or need assistance, please contact your system administrator.
 
@@ -434,6 +441,142 @@ This decision may have been made for various reasons, including:
 If you believe this decision was made in error or if you have additional information to provide, please contact our administrator at ${process.env.ADMIN_EMAIL || 'admin@surgihistory.com'}.
 
 We appreciate your understanding.
+
+Best regards,
+The SurgiHistory Team
+
+This is an automated message, please do not reply to this email.
+© ${new Date().getFullYear()} SurgiHistory. All rights reserved.
+    `;
+
+    return this.sendEmail({
+      to: email,
+      subject,
+      text,
+      html,
+    });
+  }
+
+  async sendPasswordResetEmail(email: string, name: string, resetUrl: string): Promise<boolean> {
+    const subject = 'Reset Your Password - SurgiHistory';
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+          }
+          .content {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+          }
+          .button {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 14px 28px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+          }
+          .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+            font-size: 12px;
+          }
+          .link-box {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            word-break: break-all;
+            font-size: 12px;
+            margin: 10px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Password Reset Request</h1>
+            <p>SurgiHistory Medical Records</p>
+          </div>
+          <div class="content">
+            <p>Hello ${name},</p>
+            
+            <p>We received a request to reset the password for your SurgiHistory account. Click the button below to reset your password:</p>
+            
+            <p style="text-align: center;">
+              <a href="${resetUrl}" class="button" style="color: white;">Reset Password</a>
+            </p>
+            
+            <p>Or copy and paste this link into your browser:</p>
+            <div class="link-box">${resetUrl}</div>
+            
+            <div class="warning">
+              <strong>⚠️ Important:</strong>
+              <ul>
+                <li>This link will expire in <strong>1 hour</strong></li>
+                <li>If you didn't request this password reset, please ignore this email</li>
+                <li>Your password will remain unchanged until you create a new one</li>
+              </ul>
+            </div>
+            
+            <p>If you're having trouble clicking the button, copy and paste the URL above into your web browser.</p>
+            
+            <p>Best regards,<br/>
+            The SurgiHistory Team</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message, please do not reply to this email.</p>
+            <p>&copy; ${new Date().getFullYear()} SurgiHistory. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const text = `
+Password Reset Request - SurgiHistory
+
+Hello ${name},
+
+We received a request to reset the password for your SurgiHistory account.
+
+Click the link below to reset your password:
+${resetUrl}
+
+IMPORTANT:
+- This link will expire in 1 hour
+- If you didn't request this password reset, please ignore this email
+- Your password will remain unchanged until you create a new one
+
+If you're having trouble with the link, copy and paste it into your web browser.
 
 Best regards,
 The SurgiHistory Team

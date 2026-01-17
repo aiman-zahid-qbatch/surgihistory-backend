@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import documentRequestService from '../services/documentRequestService';
+import notificationService from '../services/notificationService';
 import { logger } from '../config/logger';
 import { AuthRequest } from '../middlewares/auth';
 import { prisma } from '../config/database';
@@ -48,6 +49,20 @@ export const createDocumentRequest = async (req: AuthRequest, res: Response): Pr
       description,
       category,
     });
+
+    // Notify patient about the document request
+    try {
+      await notificationService.notifyPatientDocumentRequest(
+        patientId,
+        documentRequest.id,
+        title,
+        req.user.email,
+        req.user.role
+      );
+    } catch (notifError) {
+      logger.error('Error sending document request notification:', notifError);
+      // Don't fail the request creation if notification fails
+    }
 
     res.status(201).json(documentRequest);
   } catch (error) {
@@ -237,6 +252,31 @@ export const uploadDocumentForRequest = async (req: AuthRequest, res: Response):
 
     // Mark document request as uploaded
     const updatedRequest = await documentRequestService.markAsUploaded(requestId, media.id);
+
+    // Notify surgeon/moderator that the document request has been fulfilled
+    try {
+      // Get assigned moderators for this patient
+      const assignedModerators = await prisma.patientModerator.findMany({
+        where: { 
+          patientId: patient.id,
+          status: 'ACCEPTED',
+        },
+        select: { moderatorId: true },
+      });
+
+      const moderatorIds = assignedModerators.map(am => am.moderatorId);
+
+      await notificationService.notifyDocumentRequestFulfilled(
+        requestId,
+        patient.fullName,
+        patient.id,
+        docRequest.surgeonId || undefined,
+        moderatorIds.length > 0 ? moderatorIds[0] : undefined
+      );
+    } catch (notifError) {
+      logger.error('Error sending document fulfilled notification:', notifError);
+      // Don't fail if notification fails
+    }
 
     res.json({
       success: true,

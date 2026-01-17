@@ -87,9 +87,9 @@ export class PatientUploadController {
         category,
       });
 
-      // Notify assigned moderators when patient uploads media
+      // Notify assigned moderators and surgeons when patient uploads media
       try {
-        // Get patient info and their assigned moderators
+        // Get patient info and their assigned moderators and surgeons
         const patient = await prisma.patient.findUnique({
           where: { id: patientId },
           select: {
@@ -98,23 +98,44 @@ export class PatientUploadController {
               where: { status: 'ACCEPTED' },
               select: { moderatorId: true },
             },
+            surgeries: {
+              select: { surgeonId: true },
+              distinct: ['surgeonId'],
+            },
           },
         });
 
-        if (patient && patient.assignedModerators.length > 0) {
+        if (patient) {
           // Notify each assigned moderator
-          for (const assignment of patient.assignedModerators) {
-            await notificationService.notifyModeratorPatientUpload(
-              assignment.moderatorId,
-              patient.fullName,
-              patientId,
-              upload.id,
-              req.file.originalname
-            );
+          if (patient.assignedModerators.length > 0) {
+            for (const assignment of patient.assignedModerators) {
+              await notificationService.notifyModeratorPatientUpload(
+                assignment.moderatorId,
+                patient.fullName,
+                patientId,
+                upload.id,
+                req.file.originalname
+              );
+            }
+          }
+
+          // Notify each surgeon who has operated on this patient
+          const notifiedSurgeons = new Set<string>();
+          for (const surgery of patient.surgeries) {
+            if (surgery.surgeonId && !notifiedSurgeons.has(surgery.surgeonId)) {
+              notifiedSurgeons.add(surgery.surgeonId);
+              await notificationService.notifySurgeonPatientUpload(
+                surgery.surgeonId,
+                patient.fullName,
+                patientId,
+                upload.id,
+                req.file.originalname
+              );
+            }
           }
         }
       } catch (notifError) {
-        logger.error('Error sending upload notification to moderators:', notifError);
+        logger.error('Error sending upload notification:', notifError);
         // Don't fail the upload if notification fails
       }
 

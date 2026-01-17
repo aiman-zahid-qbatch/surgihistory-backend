@@ -192,6 +192,7 @@ export class PatientController {
         ...patientData,
         assignedModeratorIds: assignedModeratorIds || (_assignedModeratorId ? [_assignedModeratorId] : undefined),
         assignedBy: req.user.id,
+        assignedByRole: req.user.role,
       });
 
       // Send welcome email with credentials (don't fail patient creation if email fails)
@@ -378,6 +379,7 @@ export class PatientController {
         ...req.body,
         assignedModeratorIds: assignedModeratorIds || (_assignedModeratorId ? [_assignedModeratorId] : undefined),
         assignedBy: req.user?.id,
+        assignedByRole: req.user?.role,
       });
 
       // Log audit event for patient update

@@ -33,6 +33,18 @@ router.get(
 );
 
 /**
+ * @route   GET /api/media/surgeon/patients
+ * @desc    Get all media for surgeon's patients
+ * @access  Private (Surgeon only)
+ * @query   page, limit, fileType, search, sortBy, order
+ */
+router.get(
+  '/surgeon/patients',
+  authorize(UserRole.SURGEON),
+  mediaController.getSurgeonPatientsMedia
+);
+
+/**
  * @route   GET /api/media/search
  * @desc    Search media by filename or transcription
  * @access  Private (Moderator, Admin)

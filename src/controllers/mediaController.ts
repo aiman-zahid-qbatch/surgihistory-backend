@@ -723,6 +723,165 @@ export class MediaController {
       next(error);
     }
   }
+
+  /**
+   * Get all media for surgeon's patients
+   */
+  async getSurgeonPatientsMedia(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+        return;
+      }
+
+      // Get surgeon profile
+      const surgeon = await prisma.surgeon.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true },
+      });
+
+      if (!surgeon) {
+        res.status(404).json({
+          success: false,
+          message: 'Surgeon profile not found',
+        });
+        return;
+      }
+
+      // Get patient IDs from surgeries performed by this surgeon
+      const surgeries = await prisma.surgery.findMany({
+        where: { surgeonId: surgeon.id },
+        select: { patientId: true },
+      });
+
+      const patientIds = [...new Set(surgeries.map((s) => s.patientId))];
+
+      if (patientIds.length === 0) {
+        res.json({
+          success: true,
+          data: [],
+          pagination: {
+            page: 1,
+            limit: 20,
+            total: 0,
+            totalPages: 0,
+          },
+        });
+        return;
+      }
+
+      const { page = '1', limit = '20', fileType, search, sortBy = 'createdAt', order = 'desc' } = req.query;
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Ensure fileType is a string (not array or object)
+      let fileTypeValue: string | undefined = undefined;
+      if (typeof fileType === 'string') fileTypeValue = fileType;
+      
+      // Build filters
+      const fileTypeFilter = fileTypeValue ? { fileType: fileTypeValue as any } : {};
+      const searchFilter = search ? {
+        OR: [
+          { originalName: { contains: search as string, mode: 'insensitive' as const } },
+          { uploadedByName: { contains: search as string, mode: 'insensitive' as const } },
+        ],
+      } : {};
+
+      // Get media for all surgeon's patients
+      const [media, total] = await Promise.all([
+        prisma.media.findMany({
+          where: {
+            OR: [
+              // Media linked to follow-ups for surgeon's patients
+              {
+                followUp: {
+                  surgery: {
+                    patientId: { in: patientIds },
+                  },
+                },
+              },
+              // Standalone media directly linked to surgeon's patients
+              {
+                patientId: { in: patientIds },
+              },
+            ],
+            isArchived: false,
+            ...fileTypeFilter,
+            ...searchFilter,
+          },
+          include: {
+            followUp: {
+              select: {
+                id: true,
+                followUpDate: true,
+                surgery: {
+                  select: {
+                    id: true,
+                    diagnosis: true,
+                    procedureName: true,
+                    patient: {
+                      select: {
+                        id: true,
+                        fullName: true,
+                        patientId: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            patient: {
+              select: {
+                id: true,
+                fullName: true,
+                patientId: true,
+              },
+            },
+          },
+          orderBy: { [sortBy as string]: order as 'asc' | 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.media.count({
+          where: {
+            OR: [
+              {
+                followUp: {
+                  surgery: {
+                    patientId: { in: patientIds },
+                  },
+                },
+              },
+              {
+                patientId: { in: patientIds },
+              },
+            ],
+            isArchived: false,
+            ...fileTypeFilter,
+            ...searchFilter,
+          },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: media,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (error) {
+      logger.error('Error in getSurgeonPatientsMedia controller:', error);
+      next(error);
+    }
+  }
 }
 
 export default new MediaController();

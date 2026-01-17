@@ -227,6 +227,27 @@ export class SurgeryController {
 
       const surgery = await surgeryService.updateSurgery(id, updateData, req.user.id);
 
+      // Notify patient about surgery record update
+      try {
+        const surgeryWithDetails = await prisma.surgery.findUnique({
+          where: { id },
+          include: {
+            patient: { select: { id: true } },
+          },
+        });
+
+        if (surgeryWithDetails?.patient) {
+          await notificationService.notifyPatientSurgeryUpdated(
+            surgeryWithDetails.patient.id,
+            id,
+            surgery.procedureName
+          );
+        }
+      } catch (notifError) {
+        logger.error('Error sending surgery update notification:', notifError);
+        // Don't fail the update if notification fails
+      }
+
       res.json({
         success: true,
         data: surgery,

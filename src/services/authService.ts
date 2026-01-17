@@ -2,6 +2,9 @@ import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import notificationService from './notificationService';
+import emailService from './emailService';
 
 export enum UserRole {
   PATIENT = 'PATIENT',
@@ -164,7 +167,7 @@ export class AuthService {
 
       // Create Surgeon profile for SURGEON role
       if (data.role === UserRole.SURGEON) {
-        await prisma.surgeon.create({
+        const surgeon = await prisma.surgeon.create({
           data: {
             userId: user.id,
             fullName: data.fullName || data.email.split('@')[0],
@@ -173,6 +176,13 @@ export class AuthService {
           },
         });
         logger.info(`Surgeon profile created for user: ${user.email}`);
+
+        // Notify all admins about the new surgeon signup
+        await notificationService.notifySurgeonSignup(
+          surgeon.id,
+          data.fullName || data.email.split('@')[0],
+          data.email
+        );
       }
 
       await this.createAuditLog({
@@ -615,11 +625,173 @@ export class AuthService {
         },
       });
 
-      if (refreshResult.count > 0 || blacklistResult.count > 0) {
-        logger.info(`Cleaned up ${refreshResult.count} refresh tokens and ${blacklistResult.count} blacklisted tokens`);
+      // Clean up password reset tokens
+      const resetTokenResult = await prisma.passwordResetToken.deleteMany({
+        where: {
+          OR: [
+            { expiresAt: { lt: new Date() } },
+            { used: true },
+          ],
+        },
+      });
+
+      if (refreshResult.count > 0 || blacklistResult.count > 0 || resetTokenResult.count > 0) {
+        logger.info(`Cleaned up ${refreshResult.count} refresh tokens, ${blacklistResult.count} blacklisted tokens, and ${resetTokenResult.count} password reset tokens`);
       }
     } catch (error) {
       logger.error('Error cleaning up expired tokens:', error);
+    }
+  }
+
+  async forgotPassword(
+    email: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{ message: string }> {
+    try {
+      // Find user by email
+      const user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+      });
+
+      // Always return success message to prevent email enumeration
+      const successMessage = 'If an account with that email exists, a password reset link has been sent.';
+
+      if (!user) {
+        logger.info(`Password reset requested for non-existent email: ${email}`);
+        return { message: successMessage };
+      }
+
+      if (!user.isActive) {
+        logger.info(`Password reset requested for inactive account: ${email}`);
+        return { message: successMessage };
+      }
+
+      // Invalidate any existing reset tokens for this email
+      await prisma.passwordResetToken.updateMany({
+        where: { email: email.toLowerCase(), used: false },
+        data: { used: true },
+      });
+
+      // Generate a secure random token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+      // Token expires in 1 hour
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      // Store the hashed token in database
+      await prisma.passwordResetToken.create({
+        data: {
+          token: hashedToken,
+          email: email.toLowerCase(),
+          expiresAt,
+        },
+      });
+
+      // Send password reset email
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+      await emailService.sendPasswordResetEmail(email, user.name || 'User', resetUrl);
+
+      // Log the action
+      await this.createAuditLog({
+        userId: user.id,
+        action: 'UPDATE',
+        entityType: 'User',
+        entityId: user.id,
+        description: 'Password reset requested',
+        ipAddress,
+        userAgent,
+        success: true,
+      });
+
+      logger.info(`Password reset email sent to: ${email}`);
+      return { message: successMessage };
+    } catch (error) {
+      logger.error('Error in forgotPassword:', error);
+      throw new Error('Failed to process password reset request');
+    }
+  }
+
+  async resetPassword(
+    token: string,
+    newPassword: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{ message: string }> {
+    try {
+      // Hash the provided token to compare with stored hash
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+      // Find the reset token
+      const resetToken = await prisma.passwordResetToken.findFirst({
+        where: {
+          token: hashedToken,
+          used: false,
+          expiresAt: { gt: new Date() },
+        },
+      });
+
+      if (!resetToken) {
+        throw new Error('Invalid or expired password reset token');
+      }
+
+      // Find the user
+      const user = await prisma.user.findUnique({
+        where: { email: resetToken.email },
+      });
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      if (!user.isActive) {
+        throw new Error('Account is deactivated');
+      }
+
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update user password
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      });
+
+      // Mark token as used
+      await prisma.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { used: true },
+      });
+
+      // Revoke all refresh tokens for this user (force re-login)
+      await prisma.refreshToken.updateMany({
+        where: { userId: user.id },
+        data: { isRevoked: true },
+      });
+
+      // Log the action
+      await this.createAuditLog({
+        userId: user.id,
+        action: 'UPDATE',
+        entityType: 'User',
+        entityId: user.id,
+        description: 'Password reset completed',
+        ipAddress,
+        userAgent,
+        success: true,
+      });
+
+      logger.info(`Password reset completed for: ${user.email}`);
+      return { message: 'Password has been reset successfully. Please login with your new password.' };
+    } catch (error) {
+      logger.error('Error in resetPassword:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to reset password');
     }
   }
 }

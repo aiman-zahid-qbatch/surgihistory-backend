@@ -95,6 +95,16 @@ export class UserController {
         changes: { email, name, role },
       });
 
+      // Notify all admins about new user creation (for non-admin users)
+      if (role !== 'ADMIN') {
+        await notificationService.notifyUserCreated(
+          user.id,
+          name || fullName || email,
+          email,
+          role
+        );
+      }
+
       res.status(201).json(user);
     } catch (error: any) {
       logger.error('Error in createUser:', error);
@@ -206,6 +216,14 @@ export class UserController {
       await logAuditEvent(req, 'UPDATE', 'surgeon', id, {
         description: `Approved surgeon: ${user.email}`,
       });
+
+      // Notify the surgeon that their account is approved
+      const surgeon = await prisma.surgeon.findUnique({
+        where: { userId: id },
+      });
+      if (surgeon) {
+        await notificationService.notifySurgeonApproved(id, surgeon.id);
+      }
 
       res.json({ message: 'Surgeon approved successfully', user });
     } catch (error: any) {

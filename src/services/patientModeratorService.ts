@@ -113,6 +113,16 @@ export class PatientModeratorService {
         }
       }
 
+      // Notify the patient that a moderator has been assigned
+      try {
+        await notificationService.notifyPatientModeratorAssigned(
+          updatedAssignment.patient.id,
+          assignment.moderator.fullName || 'A care coordinator'
+        );
+      } catch (notifError) {
+        logger.error('Error sending patient moderator assigned notification:', notifError);
+      }
+
       logger.info(`Assignment ${assignmentId} accepted by moderator ${moderatorId}`);
       return updatedAssignment;
     } catch (error) {

@@ -232,6 +232,11 @@ export class UserService {
         throw new Error('Cannot modify admin users');
       }
 
+      // Prevent changing TO admin role
+      if (data.role === 'ADMIN') {
+        throw new Error('Cannot change user to admin role');
+      }
+
       // Check if email is being changed and if it's already taken
       if (data.email && data.email !== existingUser.email) {
         const emailExists = await prisma.user.findUnique({
@@ -242,6 +247,11 @@ export class UserService {
           throw new Error('Email already in use');
         }
       }
+
+      // Handle role change - need to manage profile records
+      const roleChanged = data.role && data.role !== existingUser.role;
+      const oldRole = existingUser.role;
+      const newRole = data.role;
 
       const user = await prisma.user.update({
         where: { id: userId },
@@ -261,6 +271,50 @@ export class UserService {
           updatedAt: true,
         },
       });
+
+      // If role changed, handle profile creation/cleanup
+      if (roleChanged && newRole) {
+        const userName = user.name || user.email.split('@')[0];
+
+        // Create new profile based on new role
+        if (newRole === 'SURGEON') {
+          // Check if surgeon profile already exists
+          const existingSurgeon = await prisma.surgeon.findUnique({
+            where: { userId: user.id },
+          });
+          if (!existingSurgeon) {
+            await prisma.surgeon.create({
+              data: {
+                userId: user.id,
+                fullName: userName,
+                contactNumber: '',
+                specialization: 'Surgeon',
+              },
+            });
+            logger.info(`Surgeon profile created for user: ${user.email}`);
+          }
+        } else if (newRole === 'MODERATOR') {
+          // Check if moderator profile already exists
+          const existingModerator = await prisma.moderator.findUnique({
+            where: { userId: user.id },
+          });
+          if (!existingModerator) {
+            await prisma.moderator.create({
+              data: {
+                userId: user.id,
+                fullName: userName,
+                contactNumber: '',
+              },
+            });
+            logger.info(`Moderator profile created for user: ${user.email}`);
+          }
+        }
+
+        // Note: We don't auto-create Patient profile on role change as it requires additional fields (CNIC, etc.)
+        // Patient profiles should be created through the proper patient creation flow
+        
+        logger.info(`User role changed from ${oldRole} to ${newRole}: ${user.email}`);
+      }
 
       logger.info(`User updated: ${user.email}`);
 

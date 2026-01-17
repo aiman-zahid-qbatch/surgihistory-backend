@@ -4,7 +4,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import notificationService from './notificationService';
-import emailService from './emailService';
+import { emailService } from './emailService';
 
 export enum UserRole {
   PATIENT = 'PATIENT',

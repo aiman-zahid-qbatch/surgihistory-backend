@@ -174,6 +174,7 @@ model Surgeon {
 
   assignedPatients Patient[]   @relation("AssignedPatients")
   createdPatients  Patient[]   @relation("CreatedPatients")
+  patientAssignments PatientSurgeon[] @relation("PatientSurgeons")
   surgeries     Surgery[]
   followUps     FollowUp[]
   notifications Notification[]

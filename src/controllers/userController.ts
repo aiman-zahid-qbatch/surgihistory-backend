@@ -387,6 +387,41 @@ export class UserController {
       next(error);
     }
   }
+
+  // Get all surgeons (for dropdown in patient assignment)
+  async getAllSurgeons(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      // Get all active surgeons with their profile information
+      const surgeons = await prisma.surgeon.findMany({
+        where: {
+          user: {
+            isActive: true,
+          },
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
+        orderBy: {
+          fullName: 'asc',
+        },
+      });
+
+      res.json({
+        success: true,
+        data: surgeons,
+      });
+    } catch (error) {
+      logger.error('Error in getAllSurgeons:', error);
+      next(error);
+    }
+  }
 }
 
 export const userController = new UserController();

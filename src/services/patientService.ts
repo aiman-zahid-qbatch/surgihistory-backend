@@ -196,13 +196,22 @@ export class PatientService {
     }
   }
 
-  async getAllPatients(createdById?: string, assignedModeratorId?: string): Promise<Patient[]> {
+  async getAllPatients(createdById?: string, assignedModeratorId?: string, assignedSurgeonId?: string): Promise<Patient[]> {
     try {
       const whereClause: any = { isArchived: false };
 
-      // If createdById is provided, filter by it (for surgeons/doctors)
-      if (createdById) {
-        whereClause.createdById = createdById;
+      // For surgeons, show patients they created OR patients assigned to them
+      if (createdById || assignedSurgeonId) {
+        const surgeonConditions: any[] = [];
+        if (createdById) {
+          surgeonConditions.push({ createdById });
+        }
+        if (assignedSurgeonId) {
+          surgeonConditions.push({ assignedSurgeonId });
+        }
+        if (surgeonConditions.length > 0) {
+          whereClause.OR = surgeonConditions;
+        }
       }
 
       // If assignedModeratorId is provided, filter by accepted assignments (for moderators)

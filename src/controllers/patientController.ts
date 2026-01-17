@@ -265,6 +265,7 @@ export class PatientController {
 
       // Get surgeon ID for surgeons to filter their patients
       let createdById: string | undefined;
+      let assignedSurgeonId: string | undefined;
       let assignedModeratorId: string | undefined;
       
       if (req.user.role === UserRole.SURGEON) {
@@ -272,7 +273,9 @@ export class PatientController {
           where: { userId: req.user.id },
           select: { id: true },
         });
+        // For surgeons, show both created AND assigned patients
         createdById = surgeon?.id;
+        assignedSurgeonId = surgeon?.id;
       }
 
       // Get moderator ID to filter patients assigned to them
@@ -284,7 +287,7 @@ export class PatientController {
         assignedModeratorId = moderator?.id;
       }
 
-      const patients = await patientService.getAllPatients(createdById, assignedModeratorId);
+      const patients = await patientService.getAllPatients(createdById, assignedModeratorId, assignedSurgeonId);
       res.json({
         success: true,
         data: patients,

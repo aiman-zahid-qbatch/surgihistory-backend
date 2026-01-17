@@ -592,6 +592,171 @@ This is an automated message, please do not reply to this email.
       html,
     });
   }
+
+  async sendFollowUpReminderEmail(
+    email: string, 
+    patientName: string, 
+    followUpDate: string, 
+    daysBefore: number,
+    surgeonName?: string,
+    notes?: string
+  ): Promise<boolean> {
+    // Format time label based on days or minutes
+    let timeLabel: string;
+    if (daysBefore < 1) {
+      const minutes = Math.round(daysBefore * 24 * 60);
+      timeLabel = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    } else {
+      timeLabel = `${daysBefore} day${daysBefore > 1 ? 's' : ''}`;
+    }
+
+    const subject = `Follow-up Reminder - ${timeLabel} remaining - SurgiHistory`;
+    
+    const formattedDate = new Date(followUpDate).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+          }
+          .content {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+          }
+          .reminder-box {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          .reminder-box h2 {
+            color: #1976d2;
+            margin: 0 0 10px 0;
+          }
+          .date-highlight {
+            font-size: 24px;
+            color: #1976d2;
+            font-weight: bold;
+          }
+          .info-box {
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+            font-size: 12px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📅 Follow-up Reminder</h1>
+            <p>SurgiHistory Medical Records</p>
+          </div>
+          <div class="content">
+            <p>Dear ${patientName},</p>
+            
+            <div class="reminder-box">
+              <h2>Your Follow-up Appointment</h2>
+              <p>is scheduled in</p>
+              <p class="date-highlight">${timeLabel}</p>
+              <p><strong>${formattedDate}</strong></p>
+            </div>
+            
+            <div class="info-box">
+              <p><strong>📋 Appointment Details:</strong></p>
+              <ul>
+                <li><strong>Date:</strong> ${formattedDate}</li>
+                ${surgeonName ? `<li><strong>Doctor:</strong> Dr. ${surgeonName}</li>` : ''}
+                ${notes ? `<li><strong>Notes:</strong> ${notes}</li>` : ''}
+              </ul>
+            </div>
+            
+            <p><strong>Important Reminders:</strong></p>
+            <ul>
+              <li>Please arrive 10-15 minutes before your scheduled time</li>
+              <li>Bring any relevant medical documents or test results</li>
+              <li>If you need to reschedule, please contact us as soon as possible</li>
+            </ul>
+            
+            <p>If you have any questions or need to reschedule, please contact your healthcare provider.</p>
+            
+            <p>Best regards,<br/>
+            The SurgiHistory Team</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated reminder from SurgiHistory.</p>
+            <p>&copy; ${new Date().getFullYear()} SurgiHistory. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const text = `
+Follow-up Reminder - SurgiHistory
+
+Dear ${patientName},
+
+This is a reminder that your follow-up appointment is scheduled in ${timeLabel}.
+
+APPOINTMENT DETAILS:
+- Date: ${formattedDate}
+${surgeonName ? `- Doctor: Dr. ${surgeonName}` : ''}
+${notes ? `- Notes: ${notes}` : ''}
+
+IMPORTANT REMINDERS:
+- Please arrive 10-15 minutes before your scheduled time
+- Bring any relevant medical documents or test results
+- If you need to reschedule, please contact us as soon as possible
+
+If you have any questions or need to reschedule, please contact your healthcare provider.
+
+Best regards,
+The SurgiHistory Team
+
+This is an automated reminder from SurgiHistory.
+© ${new Date().getFullYear()} SurgiHistory. All rights reserved.
+    `;
+
+    return this.sendEmail({
+      to: email,
+      subject,
+      text,
+      html,
+    });
+  }
 }
 
 export const emailService = new EmailService();

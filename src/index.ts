@@ -31,8 +31,8 @@ app.use(cookieParser()); // Parse cookies
 // Serve static files (uploaded images)
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-// Routes
-app.use('/', routes);
+// Routes - mounted under /api namespace
+app.use('/api', routes);
 
 // Health check
 app.get('/health', (_req, res) => {

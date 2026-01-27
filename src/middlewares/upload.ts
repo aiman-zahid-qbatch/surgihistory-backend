@@ -1,6 +1,6 @@
 import multer from 'multer';
 import path from 'path';
-import { Request } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 
 // Create uploads directory if it doesn't exist
@@ -8,6 +8,28 @@ const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+
+// Allowed file types with user-friendly message
+const ALLOWED_TYPES = {
+  images: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
+  documents: [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+  ],
+  audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/m4a', 'audio/x-m4a'],
+  video: ['video/mp4', 'video/mpeg', 'video/webm', 'video/ogg', 'video/quicktime'],
+};
+
+const allowedMimes = [
+  ...ALLOWED_TYPES.images,
+  ...ALLOWED_TYPES.documents,
+  ...ALLOWED_TYPES.audio,
+  ...ALLOWED_TYPES.video,
+];
 
 // Configure storage
 const storage = multer.diskStorage({
@@ -25,45 +47,18 @@ const storage = multer.diskStorage({
 
 // File filter function
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  // Allowed file types
-  const allowedMimes = [
-    // Images
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    // PDF
-    'application/pdf',
-    // Audio
-    'audio/mpeg',
-    'audio/mp3',
-    'audio/wav',
-    'audio/ogg',
-    'audio/webm',
-    'audio/m4a',
-    // Video
-    'video/mp4',
-    'video/mpeg',
-    'video/webm',
-    'video/ogg',
-    // Documents
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/plain',
-  ];
-
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`File type not allowed: ${file.mimetype}. Allowed types: images, PDF, audio, video, documents`));
+    const error = new Error(
+      `File type not allowed: ${file.mimetype}. Supported formats: Images (JPEG, PNG, GIF, WebP), Documents (PDF, Word, Excel, TXT), Audio (MP3, WAV, OGG, M4A), Video (MP4, WebM, OGG)`
+    );
+    cb(error);
   }
 };
 
 // Configure multer
-export const upload = multer({
+const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
@@ -71,18 +66,53 @@ export const upload = multer({
   },
 });
 
-// Single file upload middleware
-export const uploadSingle = upload.single('file');
+// Wrapper to handle multer errors properly
+const handleUploadError = (uploadMiddleware: any) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    uploadMiddleware(req, res, (err: any) => {
+      if (err) {
+        // Handle file type errors
+        if (err.message && err.message.includes('File type not allowed')) {
+          return res.status(400).json({
+            success: false,
+            message: err.message,
+          });
+        }
+        // Handle multer-specific errors
+        if (err instanceof multer.MulterError) {
+          let message = 'File upload error';
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            message = 'File is too large. Maximum file size is 50MB';
+          } else if (err.code === 'LIMIT_FILE_COUNT') {
+            message = 'Too many files. Maximum is 10 files';
+          } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+            message = 'Unexpected file field';
+          }
+          return res.status(400).json({
+            success: false,
+            message,
+          });
+        }
+        // Pass other errors to the error handler
+        return next(err);
+      }
+      next();
+    });
+  };
+};
 
-// Multiple files upload middleware (max 10 files)
-export const uploadMultiple = upload.array('files', 10);
+// Single file upload middleware with error handling
+export const uploadSingle = handleUploadError(upload.single('file'));
 
-// Fields upload middleware (for forms with multiple file inputs)
-export const uploadFields = upload.fields([
+// Multiple files upload middleware (max 10 files) with error handling
+export const uploadMultiple = handleUploadError(upload.array('files', 10));
+
+// Fields upload middleware (for forms with multiple file inputs) with error handling
+export const uploadFields = handleUploadError(upload.fields([
   { name: 'file', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 },
   { name: 'attachments', maxCount: 5 },
-]);
+]));
 
 // Profile image upload middleware with stricter limits
 const profileImageStorage = multer.diskStorage({
@@ -110,10 +140,12 @@ const profileImageFilter = (_req: Request, file: Express.Multer.File, cb: multer
   }
 };
 
-export const uploadProfileImage = multer({
+const profileImageUpload = multer({
   storage: profileImageStorage,
   fileFilter: profileImageFilter,
   limits: {
     fileSize: 2 * 1024 * 1024, // 2MB max for profile images
   },
-}).single('profileImage');
+});
+
+export const uploadProfileImage = handleUploadError(profileImageUpload.single('profileImage'));

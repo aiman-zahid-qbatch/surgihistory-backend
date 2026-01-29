@@ -30,10 +30,15 @@ app.use(cookieParser()); // Parse cookies
 // Serve static files (uploaded images)
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-// Routes
-app.use('/', routes);
+// Routes - all API routes under /api prefix
+app.use('/api', routes);
 
 // Health check
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Root health check for load balancer
 app.get('/health', (_req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });

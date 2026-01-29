@@ -31,11 +31,12 @@ export class PatientModeratorController {
         moderator = await prisma.moderator.create({
           data: {
             userId: req.user.id,
-            fullName: req.user.name || 'Moderator',
+            fullName: req.user.email.split('@')[0] || 'Moderator',
+            contactNumber: '',
           },
           select: { id: true },
         });
-        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
+        logger.info(`Auto-created moderator profile for user ${req.user.email}`);
       }
 
       const assignments = await patientModeratorService.getPendingAssignments(moderator.id);
@@ -76,11 +77,12 @@ export class PatientModeratorController {
         moderator = await prisma.moderator.create({
           data: {
             userId: req.user.id,
-            fullName: req.user.name || 'Moderator',
+            fullName: req.user.email.split('@')[0] || 'Moderator',
+            contactNumber: '',
           },
           select: { id: true },
         });
-        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
+        logger.info(`Auto-created moderator profile for user ${req.user.email}`);
       }
 
       const assignment = await patientModeratorService.acceptAssignment(id, moderator.id);
@@ -129,11 +131,12 @@ export class PatientModeratorController {
         moderator = await prisma.moderator.create({
           data: {
             userId: req.user.id,
-            fullName: req.user.name || 'Moderator',
+            fullName: req.user.email.split('@')[0] || 'Moderator',
+            contactNumber: '',
           },
           select: { id: true },
         });
-        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
+        logger.info(`Auto-created moderator profile for user ${req.user.email}`);
       }
 
       const assignment = await patientModeratorService.rejectAssignment(id, moderator.id);
@@ -180,11 +183,12 @@ export class PatientModeratorController {
         moderator = await prisma.moderator.create({
           data: {
             userId: req.user.id,
-            fullName: req.user.name || 'Moderator',
+            fullName: req.user.email.split('@')[0] || 'Moderator',
+            contactNumber: '',
           },
           select: { id: true },
         });
-        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
+        logger.info(`Auto-created moderator profile for user ${req.user.email}`);
       }
 
       // Get status filter from query
@@ -229,11 +233,12 @@ export class PatientModeratorController {
         moderator = await prisma.moderator.create({
           data: {
             userId: req.user.id,
-            fullName: req.user.name || 'Moderator',
+            fullName: req.user.email.split('@')[0] || 'Moderator',
+            contactNumber: '',
           },
           select: { id: true },
         });
-        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
+        logger.info(`Auto-created moderator profile for user ${req.user.email}`);
       }
 
       const counts = await patientModeratorService.getAssignmentCounts(moderator.id);

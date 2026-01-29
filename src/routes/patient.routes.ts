@@ -20,17 +20,6 @@ router.get(
 );
 
 /**
- * @route   GET /api/patients/surgeons
- * @desc    Get all surgeons for patient assignment
- * @access  Private (Admin)
- */
-router.get(
-  '/surgeons',
-  authorize(UserRole.ADMIN),
-  userController.getAllSurgeons.bind(userController)
-);
-
-/**
  * @route   GET /api/patients/moderator/assigned
  * @desc    Get patients assigned to the current moderator
  * @access  Private (Moderator only)
@@ -100,11 +89,11 @@ router.put(
 /**
  * @route   DELETE /api/patients/:id
  * @desc    Archive patient (soft delete)
- * @access  Private (Surgeon, Admin)
+ * @access  Private (Admin only)
  */
 router.delete(
   '/:id',
-  authorize(UserRole.SURGEON, UserRole.ADMIN),
+  authorize(UserRole.ADMIN),
   patientController.archivePatient
 );
 

@@ -544,10 +544,30 @@ export class MediaController {
       }
 
       // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
+
+      // Auto-create moderator profile if it doesn't exist (for existing users before profile creation code)
+      if (!moderator && req.user.role === 'MODERATOR') {
+        const user = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { name: true, email: true },
+        });
+        
+        if (user) {
+          moderator = await prisma.moderator.create({
+            data: {
+              userId: req.user.id,
+              fullName: user.name || user.email.split('@')[0],
+              contactNumber: '',
+            },
+            select: { id: true },
+          });
+          logger.info(`Auto-created moderator profile for user: ${user.email}`);
+        }
+      }
 
       if (!moderator) {
         res.status(404).json({

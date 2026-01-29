@@ -227,42 +227,6 @@ export class ReminderController {
       res.status(500).json({ error: 'Failed to delete follow-up reminders' });
     }
   }
-
-  /**
-   * Process all pending reminders (can be called by cron job)
-   */
-  async processPendingReminders(_req: Request, res: Response): Promise<void> {
-    try {
-      const results = await reminderService.processPendingReminders();
-
-      res.json({
-        message: 'Pending reminders processed',
-        results,
-      });
-    } catch (error) {
-      logger.error('Error in processPendingReminders:', error);
-      res.status(500).json({ error: 'Failed to process pending reminders' });
-    }
-  }
-
-  /**
-   * Process a single reminder immediately
-   */
-  async processReminder(req: Request, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-
-      const reminder = await reminderService.processReminder(id);
-
-      res.json({
-        message: 'Reminder processed',
-        reminder,
-      });
-    } catch (error) {
-      logger.error('Error in processReminder:', error);
-      res.status(500).json({ error: 'Failed to process reminder' });
-    }
-  }
 }
 
 export default new ReminderController();

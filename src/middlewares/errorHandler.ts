@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../config/logger';
 import { Prisma } from '@prisma/client';
-import multer from 'multer';
 
 export interface ApiError extends Error {
   statusCode?: number;
@@ -9,36 +8,13 @@ export interface ApiError extends Error {
 }
 
 export const errorHandler = (
-  err: ApiError | Prisma.PrismaClientKnownRequestError | multer.MulterError,
+  err: ApiError | Prisma.PrismaClientKnownRequestError,
   req: Request,
   res: Response,
   _next: NextFunction
 ) => {
   let statusCode = (err as ApiError).statusCode || 500;
   let message = err.message || 'Internal Server Error';
-
-  // Handle Multer errors (file upload errors)
-  if (err instanceof multer.MulterError) {
-    statusCode = 400;
-    switch (err.code) {
-      case 'LIMIT_FILE_SIZE':
-        message = 'File is too large. Maximum file size is 50MB';
-        break;
-      case 'LIMIT_FILE_COUNT':
-        message = 'Too many files. Maximum is 10 files';
-        break;
-      case 'LIMIT_UNEXPECTED_FILE':
-        message = 'Unexpected file field';
-        break;
-      default:
-        message = `File upload error: ${err.message}`;
-    }
-  }
-
-  // Handle custom file filter errors (e.g., unsupported file type)
-  if (err.message && err.message.includes('File type not allowed')) {
-    statusCode = 400;
-  }
 
   // Handle Prisma errors
   if (err instanceof Prisma.PrismaClientKnownRequestError) {

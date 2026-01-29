@@ -11,7 +11,6 @@ import { connectDatabase, disconnectDatabase } from './config/database';
 
 import { authService } from './services/authService';
 import { initializeSocket } from './config/socket';
-import reminderService from './services/reminderService';
 
 dotenv.config();
 
@@ -31,8 +30,8 @@ app.use(cookieParser()); // Parse cookies
 // Serve static files (uploaded images)
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-// Routes - mounted under /api namespace
-app.use('/api', routes);
+// Routes
+app.use('/', routes);
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -72,31 +71,8 @@ const startServer = async () => {
       }
     }, 60 * 60 * 1000); // 1 hour
 
-    // Schedule reminder processing (runs every minute)
-    setInterval(async () => {
-      try {
-        const results = await reminderService.processPendingReminders();
-        if (results.length > 0) {
-          logger.info(`Processed ${results.length} reminders`);
-        }
-      } catch (error) {
-        logger.error('Error in reminder processing task:', error);
-      }
-    }, 60 * 1000); // 1 minute
-
     // Run initial cleanup
     await authService.cleanupExpiredTokens();
-
-    // Run initial reminder processing
-    logger.info('Starting initial reminder processing...');
-    try {
-      const initialResults = await reminderService.processPendingReminders();
-      if (initialResults.length > 0) {
-        logger.info(`Processed ${initialResults.length} initial reminders`);
-      }
-    } catch (error) {
-      logger.error('Error in initial reminder processing:', error);
-    }
 
     // Start listening
     httpServer.listen(PORT, () => {

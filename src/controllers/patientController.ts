@@ -192,7 +192,6 @@ export class PatientController {
         ...patientData,
         assignedModeratorIds: assignedModeratorIds || (_assignedModeratorId ? [_assignedModeratorId] : undefined),
         assignedBy: req.user.id,
-        assignedByRole: req.user.role,
       });
 
       // Send welcome email with credentials (don't fail patient creation if email fails)
@@ -265,7 +264,6 @@ export class PatientController {
 
       // Get surgeon ID for surgeons to filter their patients
       let createdById: string | undefined;
-      let assignedSurgeonId: string | undefined;
       let assignedModeratorId: string | undefined;
       
       if (req.user.role === UserRole.SURGEON) {
@@ -273,9 +271,7 @@ export class PatientController {
           where: { userId: req.user.id },
           select: { id: true },
         });
-        // For surgeons, show both created AND assigned patients
         createdById = surgeon?.id;
-        assignedSurgeonId = surgeon?.id;
       }
 
       // Get moderator ID to filter patients assigned to them
@@ -287,7 +283,7 @@ export class PatientController {
         assignedModeratorId = moderator?.id;
       }
 
-      const patients = await patientService.getAllPatients(createdById, assignedModeratorId, assignedSurgeonId);
+      const patients = await patientService.getAllPatients(createdById, assignedModeratorId);
       res.json({
         success: true,
         data: patients,
@@ -382,7 +378,6 @@ export class PatientController {
         ...req.body,
         assignedModeratorIds: assignedModeratorIds || (_assignedModeratorId ? [_assignedModeratorId] : undefined),
         assignedBy: req.user?.id,
-        assignedByRole: req.user?.role,
       });
 
       // Log audit event for patient update
@@ -459,10 +454,30 @@ export class PatientController {
       }
 
       // Get moderator profile from user ID
-      const moderator = await prisma.moderator.findUnique({
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
+
+      // Auto-create moderator profile if it doesn't exist (for existing users before profile creation code)
+      if (!moderator && req.user.role === 'MODERATOR') {
+        const user = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { name: true, email: true },
+        });
+        
+        if (user) {
+          moderator = await prisma.moderator.create({
+            data: {
+              userId: req.user.id,
+              fullName: user.name || user.email.split('@')[0],
+              contactNumber: '',
+            },
+            select: { id: true },
+          });
+          logger.info(`Auto-created moderator profile for user: ${user.email}`);
+        }
+      }
 
       if (!moderator) {
         res.status(404).json({

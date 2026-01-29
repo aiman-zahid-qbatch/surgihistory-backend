@@ -10,8 +10,9 @@ export class ProfileController {
   getProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = (req as any).user.id;
+      const userRole = (req as any).user.role;
 
-      const user = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
           id: true,
@@ -60,6 +61,31 @@ export class ProfileController {
           message: 'User not found',
         });
         return;
+      }
+
+      // Auto-create moderator profile if it doesn't exist for MODERATOR role
+      if (userRole === 'MODERATOR' && !user.moderator) {
+        const newModerator = await prisma.moderator.create({
+          data: {
+            userId: userId,
+            fullName: user.name || user.email.split('@')[0],
+            contactNumber: '',
+          },
+          select: {
+            id: true,
+            fullName: true,
+            contactNumber: true,
+            whatsappNumber: true,
+            canAddRecords: true,
+            canEditRecords: true,
+            canDeleteRecords: true,
+          },
+        });
+        
+        logger.info(`Auto-created moderator profile for user: ${user.email}`);
+        
+        // Add the moderator profile to the user object
+        (user as any).moderator = newModerator;
       }
 
       res.json({

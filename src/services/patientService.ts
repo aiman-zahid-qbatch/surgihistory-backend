@@ -53,9 +53,9 @@ interface UpdatePatientData {
 }
 
 export class PatientService {
-  async createPatient(data: CreatePatientData & { assignedModeratorIds?: string[]; assignedBy?: string; assignedByRole?: string }): Promise<Patient> {
+  async createPatient(data: CreatePatientData & { assignedModeratorIds?: string[]; assignedBy?: string }): Promise<Patient> {
     try {
-      const { assignedModeratorIds, assignedBy, assignedByRole, ...patientData } = data;
+      const { assignedModeratorIds, assignedBy, ...patientData } = data;
 
       // Check if patient with this CNIC already exists
       if (patientData.cnic) {
@@ -78,21 +78,17 @@ export class PatientService {
 
       // If multiple moderators are provided, create the relationships and send notifications
       if (assignedModeratorIds && assignedModeratorIds.length > 0) {
-        // Auto-accept if assigned by admin, otherwise set to PENDING for surgeon assignments
-        const status = assignedByRole === 'ADMIN' ? 'ACCEPTED' : 'PENDING';
-        
         await prisma.patientModerator.createMany({
           data: assignedModeratorIds.map(moderatorId => ({
             patientId: patient.id,
             moderatorId,
             assignedBy: assignedBy,
-            status: status,
-            ...(status === 'ACCEPTED' ? { respondedAt: new Date() } : {}),
+            status: 'ASSIGNED',
           })),
         });
 
         // Get surgeon name for notification
-        const surgeonName = (patient as any).createdBy?.fullName || (assignedByRole === 'ADMIN' ? 'Admin' : 'A surgeon');
+        const surgeonName = (patient as any).createdBy?.fullName || 'A surgeon';
 
         // Get the created assignments to get their IDs
         const createdAssignments = await prisma.patientModerator.findMany({
@@ -105,52 +101,15 @@ export class PatientService {
         // Send notification to each moderator
         for (const assignment of createdAssignments) {
           try {
-            if (status === 'ACCEPTED') {
-              // Notify moderator that they've been assigned (auto-accepted by admin)
-              await notificationService.createNotification({
-                recipientId: assignment.moderatorId,
-                recipientRole: 'MODERATOR',
-                type: 'ASSIGNMENT_ACCEPTED',
-                title: 'Patient Assigned',
-                message: `Admin has assigned patient "${patient.fullName}" to you. You now have access to their records.`,
-                entityType: 'patient',
-                entityId: patient.id,
-                priority: 'normal',
-                badgeColor: 'green',
-                patientId: patient.id,
-              });
-            } else {
-              // Regular assignment request notification (for surgeon assignments)
-              await notificationService.notifyPatientAssignmentRequest(
-                assignment.moderatorId,
-                patient.fullName,
-                patient.id,
-                surgeonName,
-                assignment.id
-              );
-            }
+            await notificationService.notifyPatientAssignmentRequest(
+              assignment.moderatorId,
+              patient.fullName,
+              patient.id,
+              surgeonName,
+              assignment.id
+            );
           } catch (notifError) {
             logger.error(`Error sending assignment notification to moderator ${assignment.moderatorId}:`, notifError);
-          }
-        }
-
-        // If auto-accepted, also notify the patient
-        if (status === 'ACCEPTED') {
-          for (const moderatorId of assignedModeratorIds) {
-            try {
-              const moderator = await prisma.moderator.findUnique({
-                where: { id: moderatorId },
-                select: { fullName: true },
-              });
-              if (moderator) {
-                await notificationService.notifyPatientModeratorAssigned(
-                  patient.id,
-                  moderator.fullName || 'A care coordinator'
-                );
-              }
-            } catch (notifError) {
-              logger.error(`Error sending patient notification:`, notifError);
-            }
           }
         }
       }
@@ -196,22 +155,13 @@ export class PatientService {
     }
   }
 
-  async getAllPatients(createdById?: string, assignedModeratorId?: string, assignedSurgeonId?: string): Promise<Patient[]> {
+  async getAllPatients(createdById?: string, assignedModeratorId?: string): Promise<Patient[]> {
     try {
       const whereClause: any = { isArchived: false };
 
-      // For surgeons, show patients they created OR patients assigned to them
-      if (createdById || assignedSurgeonId) {
-        const surgeonConditions: any[] = [];
-        if (createdById) {
-          surgeonConditions.push({ createdById });
-        }
-        if (assignedSurgeonId) {
-          surgeonConditions.push({ assignedSurgeonId });
-        }
-        if (surgeonConditions.length > 0) {
-          whereClause.OR = surgeonConditions;
-        }
+      // If createdById is provided, filter by it (for surgeons/doctors)
+      if (createdById) {
+        whereClause.createdById = createdById;
       }
 
       // If assignedModeratorId is provided, filter by accepted assignments (for moderators)
@@ -250,9 +200,9 @@ export class PatientService {
     }
   }
 
-  async updatePatient(id: string, data: UpdatePatientData & { assignedModeratorIds?: string[]; assignedBy?: string; assignedByRole?: string }): Promise<Patient> {
+  async updatePatient(id: string, data: UpdatePatientData & { assignedModeratorIds?: string[]; assignedBy?: string }): Promise<Patient> {
     try {
-      const { assignedModeratorIds, assignedBy, assignedByRole, ...updateData } = data;
+      const { assignedModeratorIds, assignedBy, ...updateData } = data;
 
       // Get existing moderator IDs before update
       const existingAssignments = await prisma.patientModerator.findMany({
@@ -283,9 +233,6 @@ export class PatientService {
           where: { patientId: id },
         });
 
-        // Auto-accept if assigned by admin, otherwise set to PENDING for surgeon assignments
-        const status = assignedByRole === 'ADMIN' ? 'ACCEPTED' : 'PENDING';
-
         // Create new moderator assignments
         if (assignedModeratorIds.length > 0) {
           await prisma.patientModerator.createMany({
@@ -293,14 +240,13 @@ export class PatientService {
               patientId: id,
               moderatorId,
               assignedBy: assignedBy,
-              status: status,
-              ...(status === 'ACCEPTED' ? { respondedAt: new Date() } : {}),
+              status: 'ASSIGNED',
             })),
           });
 
           // Send notifications only to newly assigned moderators
           if (newModeratorIds.length > 0) {
-            const surgeonName = (patient as any).createdBy?.fullName || (assignedByRole === 'ADMIN' ? 'Admin' : 'A surgeon');
+            const surgeonName = (patient as any).createdBy?.fullName || 'A surgeon';
             
             // Get the created assignments for new moderators
             const newAssignments = await prisma.patientModerator.findMany({
@@ -312,42 +258,13 @@ export class PatientService {
 
             for (const assignment of newAssignments) {
               try {
-                if (status === 'ACCEPTED') {
-                  // Notify moderator that they've been assigned (auto-accepted by admin)
-                  await notificationService.createNotification({
-                    recipientId: assignment.moderatorId,
-                    recipientRole: 'MODERATOR',
-                    type: 'ASSIGNMENT_ACCEPTED',
-                    title: 'Patient Assigned',
-                    message: `Admin has assigned patient "${patient.fullName}" to you. You now have access to their records.`,
-                    entityType: 'patient',
-                    entityId: patient.id,
-                    priority: 'normal',
-                    badgeColor: 'green',
-                    patientId: patient.id,
-                  });
-
-                  // Notify patient about the assignment
-                  const moderator = await prisma.moderator.findUnique({
-                    where: { id: assignment.moderatorId },
-                    select: { fullName: true },
-                  });
-                  if (moderator) {
-                    await notificationService.notifyPatientModeratorAssigned(
-                      patient.id,
-                      moderator.fullName || 'A care coordinator'
-                    );
-                  }
-                } else {
-                  // Regular assignment request notification (for surgeon assignments)
-                  await notificationService.notifyPatientAssignmentRequest(
-                    assignment.moderatorId,
-                    patient.fullName,
-                    patient.id,
-                    surgeonName,
-                    assignment.id
-                  );
-                }
+                await notificationService.notifyPatientAssignmentRequest(
+                  assignment.moderatorId,
+                  patient.fullName,
+                  patient.id,
+                  surgeonName,
+                  assignment.id
+                );
               } catch (notifError) {
                 logger.error(`Error sending assignment notification to moderator ${assignment.moderatorId}:`, notifError);
               }

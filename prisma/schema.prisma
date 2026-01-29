@@ -61,18 +61,6 @@ model RefreshToken {
   @@index([token])
 }
 
-model PasswordResetToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  email     String
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([token])
-  @@index([email])
-}
-
 model Patient {
   id            String        @id @default(uuid())
   userId        String        @unique
@@ -86,12 +74,8 @@ model Patient {
   whatsappNumber String?
   address       String
 
-  // DEPRECATED: Direct assignment - kept for backward compatibility
   assignedSurgeonId String?
   assignedSurgeon   Surgeon?    @relation("AssignedPatients", fields: [assignedSurgeonId], references: [id])
-
-  // New many-to-many relationship for surgeon assignments with accept/reject
-  assignedSurgeons PatientSurgeon[]
 
   // DEPRECATED: Kept for backward compatibility, use assignedModerators instead
   assignedModeratorId String?
@@ -143,25 +127,6 @@ model PatientModerator {
   @@index([moderatorId, status])
 }
 
-// Join table for many-to-many relationship between Patient and Surgeon (for assignment requests)
-model PatientSurgeon {
-  id          String            @id @default(uuid())
-  patientId   String
-  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  surgeonId   String
-  surgeon     Surgeon           @relation("PatientSurgeons", fields: [surgeonId], references: [id], onDelete: Cascade)
-  status      String            // PENDING, ACCEPTED, REJECTED
-  assignedAt  DateTime          @default(now())
-  assignedBy  String?           // ID of who assigned this surgeon (admin)
-  respondedAt DateTime?         // When surgeon accepted/rejected
-
-  @@unique([patientId, surgeonId]) // Prevent duplicate assignments
-  @@index([patientId])
-  @@index([surgeonId])
-  @@index([status])
-  @@index([surgeonId, status])
-}
-
 model Surgeon {
   id            String        @id @default(uuid())
   userId        String        @unique
@@ -174,7 +139,6 @@ model Surgeon {
 
   assignedPatients Patient[]   @relation("AssignedPatients")
   createdPatients  Patient[]   @relation("CreatedPatients")
-  patientAssignments PatientSurgeon[] @relation("PatientSurgeons")
   surgeries     Surgery[]
   followUps     FollowUp[]
   notifications Notification[]

@@ -13,12 +13,6 @@ router.post('/', reminderController.createReminder);
 // Create multiple reminders for a follow-up
 router.post('/follow-up', reminderController.createFollowUpReminders);
 
-// Process all pending reminders (for cron job or manual trigger)
-router.post('/process', reminderController.processPendingReminders);
-
-// Process a single reminder immediately
-router.post('/:id/process', reminderController.processReminder);
-
 // Get current user's reminders
 router.get('/my-reminders', reminderController.getMyReminders);
 

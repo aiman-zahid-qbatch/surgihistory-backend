@@ -392,7 +392,7 @@ class DashboardController {
       const userId = req.user?.id;
 
       // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      let moderator = await prisma.moderator.findUnique({
         where: { userId },
         include: {
           user: {
@@ -400,6 +400,30 @@ class DashboardController {
           },
         },
       });
+
+      // Auto-create moderator profile if it doesn't exist (for existing users before profile creation code)
+      if (!moderator && req.user?.role === 'MODERATOR') {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true, email: true },
+        });
+        
+        if (user) {
+          moderator = await prisma.moderator.create({
+            data: {
+              userId: userId as string,
+              fullName: user.name || user.email.split('@')[0],
+              contactNumber: '',
+            },
+            include: {
+              user: {
+                select: { name: true, email: true },
+              },
+            },
+          });
+          logger.info(`Auto-created moderator profile for user: ${user.email}`);
+        }
+      }
 
       if (!moderator) {
         res.status(404).json({ message: 'Moderator profile not found' });

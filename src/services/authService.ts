@@ -2,7 +2,9 @@ import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import notificationService from './notificationService';
+import { emailService } from './emailService';
 
 export enum UserRole {
   PATIENT = 'PATIENT',
@@ -604,8 +606,157 @@ export class AuthService {
     }
   }
 
+  async forgotPassword(
+    email: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<void> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      // Always return success to prevent email enumeration attacks
+      if (!user) {
+        logger.info(`Password reset requested for non-existent email: ${email}`);
+        return;
+      }
+
+      // Invalidate any existing reset tokens for this email
+      await prisma.passwordResetToken.updateMany({
+        where: { email, used: false },
+        data: { used: true },
+      });
+
+      // Generate a secure random token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+
+      // Token expires in 1 hour
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1);
+
+      // Store the token in the database
+      await prisma.passwordResetToken.create({
+        data: {
+          token: resetToken,
+          email: user.email,
+          expiresAt,
+        },
+      });
+
+      // Send the reset email
+      await emailService.sendPasswordResetEmail(
+        user.email,
+        user.name || '',
+        resetToken
+      );
+
+      await this.createAuditLog({
+        userId: user.id,
+        action: 'UPDATE',
+        entityType: 'auth',
+        entityId: 'password_reset_request',
+        description: 'Password reset requested',
+        ipAddress,
+        userAgent,
+        requestMethod: 'POST',
+        requestPath: '/api/auth/forgot-password',
+        success: true,
+      });
+
+      logger.info(`Password reset email sent to: ${email}`);
+    } catch (error) {
+      logger.error('Error in forgot password:', error);
+      throw error;
+    }
+  }
+
+  async resetPassword(
+    token: string,
+    newPassword: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<void> {
+    try {
+      // Find the token
+      const resetToken = await prisma.passwordResetToken.findUnique({
+        where: { token },
+      });
+
+      if (!resetToken) {
+        throw new Error('Invalid or expired reset token');
+      }
+
+      if (resetToken.used) {
+        throw new Error('This reset link has already been used');
+      }
+
+      if (resetToken.expiresAt < new Date()) {
+        throw new Error('Reset link has expired. Please request a new one.');
+      }
+
+      // Find the user
+      const user = await prisma.user.findUnique({
+        where: { email: resetToken.email },
+      });
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update the password
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      });
+
+      // Mark the token as used
+      await prisma.passwordResetToken.update({
+        where: { token },
+        data: { used: true },
+      });
+
+      // Revoke all existing refresh tokens for security
+      await prisma.refreshToken.updateMany({
+        where: { userId: user.id, isRevoked: false },
+        data: { isRevoked: true },
+      });
+
+      await this.createAuditLog({
+        userId: user.id,
+        action: 'UPDATE',
+        entityType: 'user',
+        entityId: user.id,
+        description: 'Password reset completed',
+        ipAddress,
+        userAgent,
+        requestMethod: 'POST',
+        requestPath: '/api/auth/reset-password',
+        success: true,
+      });
+
+      logger.info(`Password reset completed for user: ${user.email}`);
+    } catch (error) {
+      logger.error('Error in reset password:', error);
+      throw error;
+    }
+  }
+
   async cleanupExpiredTokens(): Promise<void> {
     try {
+      // Clean up expired password reset tokens
+      await prisma.passwordResetToken.deleteMany({
+        where: {
+          OR: [
+            { expiresAt: { lt: new Date() } },
+            { used: true, createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+          ],
+        },
+      });
+
       // Clean up refresh tokens
       const refreshResult = await prisma.refreshToken.deleteMany({
         where: {

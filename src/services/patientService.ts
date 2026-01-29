@@ -83,7 +83,7 @@ export class PatientService {
             patientId: patient.id,
             moderatorId,
             assignedBy: assignedBy,
-            status: 'ASSIGNED',
+            status: 'PENDING',
           })),
         });
 
@@ -251,7 +251,7 @@ export class PatientService {
               patientId: id,
               moderatorId,
               assignedBy: assignedBy,
-              status: 'ASSIGNED',
+              status: 'PENDING',
             })),
           });
 

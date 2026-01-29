@@ -1,7 +1,8 @@
 import multer from 'multer';
 import path from 'path';
-import { Request } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
+import { logger } from '../config/logger';
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -71,18 +72,84 @@ export const upload = multer({
   },
 });
 
-// Single file upload middleware
-export const uploadSingle = upload.single('file');
+// Wrapper to handle multer errors with better error messages
+const handleMulterError = (err: any, _req: Request, res: Response, next: NextFunction): void => {
+  if (err instanceof multer.MulterError) {
+    logger.error('Multer error during file upload:', { code: err.code, message: err.message, field: err.field });
 
-// Multiple files upload middleware (max 10 files)
-export const uploadMultiple = upload.array('files', 10);
+    switch (err.code) {
+      case 'LIMIT_FILE_SIZE':
+        res.status(413).json({
+          success: false,
+          message: 'File too large. Maximum size is 50MB',
+        });
+        return;
+      case 'LIMIT_FILE_COUNT':
+        res.status(400).json({
+          success: false,
+          message: 'Too many files. Maximum is 10 files',
+        });
+        return;
+      case 'LIMIT_UNEXPECTED_FILE':
+        res.status(400).json({
+          success: false,
+          message: `Unexpected field: ${err.field}`,
+        });
+        return;
+      default:
+        res.status(400).json({
+          success: false,
+          message: `Upload error: ${err.message}`,
+        });
+        return;
+    }
+  } else if (err) {
+    logger.error('Error during file upload:', err);
+    res.status(400).json({
+      success: false,
+      message: err.message || 'Error uploading file',
+    });
+    return;
+  }
+  next();
+};
 
-// Fields upload middleware (for forms with multiple file inputs)
-export const uploadFields = upload.fields([
-  { name: 'file', maxCount: 1 },
-  { name: 'thumbnail', maxCount: 1 },
-  { name: 'attachments', maxCount: 5 },
-]);
+// Single file upload middleware with error handling
+export const uploadSingle = (req: Request, res: Response, next: NextFunction): void => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      handleMulterError(err, req, res, next);
+      return;
+    }
+    next();
+  });
+};
+
+// Multiple files upload middleware (max 10 files) with error handling
+export const uploadMultiple = (req: Request, res: Response, next: NextFunction): void => {
+  upload.array('files', 10)(req, res, (err) => {
+    if (err) {
+      handleMulterError(err, req, res, next);
+      return;
+    }
+    next();
+  });
+};
+
+// Fields upload middleware (for forms with multiple file inputs) with error handling
+export const uploadFields = (req: Request, res: Response, next: NextFunction): void => {
+  upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'thumbnail', maxCount: 1 },
+    { name: 'attachments', maxCount: 5 },
+  ])(req, res, (err) => {
+    if (err) {
+      handleMulterError(err, req, res, next);
+      return;
+    }
+    next();
+  });
+};
 
 // Profile image upload middleware with stricter limits
 const profileImageStorage = multer.diskStorage({

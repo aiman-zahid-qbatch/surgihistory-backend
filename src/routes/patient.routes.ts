@@ -20,6 +20,17 @@ router.get(
 );
 
 /**
+ * @route   GET /api/patients/surgeons
+ * @desc    Get all surgeons for patient assignment (admin only)
+ * @access  Private (Admin)
+ */
+router.get(
+  '/surgeons',
+  authorize(UserRole.ADMIN),
+  userController.getAllSurgeons.bind(userController)
+);
+
+/**
  * @route   GET /api/patients/moderator/assigned
  * @desc    Get patients assigned to the current moderator
  * @access  Private (Moderator only)

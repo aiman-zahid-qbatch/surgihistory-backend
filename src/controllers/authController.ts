@@ -195,6 +195,64 @@ export class AuthController {
       }
     }
   }
+
+  async forgotPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        res.status(400).json({ message: 'Email is required' });
+        return;
+      }
+
+      const ipAddress = req.ip || req.socket.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+
+      await authService.forgotPassword(email, ipAddress, userAgent);
+
+      // Always return success to prevent email enumeration
+      res.status(200).json({
+        message: 'If an account with that email exists, a password reset link has been sent.',
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: 'Internal server error' });
+      }
+    }
+  }
+
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { token, newPassword } = req.body;
+
+      if (!token || !newPassword) {
+        res.status(400).json({ message: 'Token and new password are required' });
+        return;
+      }
+
+      if (newPassword.length < 8) {
+        res.status(400).json({ message: 'Password must be at least 8 characters long' });
+        return;
+      }
+
+      const ipAddress = req.ip || req.socket.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+
+      await authService.resetPassword(token, newPassword, ipAddress, userAgent);
+
+      res.status(200).json({
+        message: 'Password has been reset successfully. You can now log in with your new password.',
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: 'Internal server error' });
+      }
+    }
+  }
 }
 
 export const authController = new AuthController();

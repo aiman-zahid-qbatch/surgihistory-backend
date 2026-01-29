@@ -20,18 +20,22 @@ export class PatientModeratorController {
         return;
       }
 
-      // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      // Get moderator profile, create if not exists
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
 
       if (!moderator) {
-        res.status(404).json({
-          success: false,
-          message: 'Moderator profile not found',
+        // Auto-create moderator profile
+        moderator = await prisma.moderator.create({
+          data: {
+            userId: req.user.id,
+            fullName: req.user.name || 'Moderator',
+          },
+          select: { id: true },
         });
-        return;
+        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
       }
 
       const assignments = await patientModeratorService.getPendingAssignments(moderator.id);
@@ -61,18 +65,22 @@ export class PatientModeratorController {
 
       const { id } = req.params;
 
-      // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      // Get moderator profile, create if not exists
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
 
       if (!moderator) {
-        res.status(404).json({
-          success: false,
-          message: 'Moderator profile not found',
+        // Auto-create moderator profile
+        moderator = await prisma.moderator.create({
+          data: {
+            userId: req.user.id,
+            fullName: req.user.name || 'Moderator',
+          },
+          select: { id: true },
         });
-        return;
+        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
       }
 
       const assignment = await patientModeratorService.acceptAssignment(id, moderator.id);
@@ -110,18 +118,22 @@ export class PatientModeratorController {
 
       const { id } = req.params;
 
-      // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      // Get moderator profile, create if not exists
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
 
       if (!moderator) {
-        res.status(404).json({
-          success: false,
-          message: 'Moderator profile not found',
+        // Auto-create moderator profile
+        moderator = await prisma.moderator.create({
+          data: {
+            userId: req.user.id,
+            fullName: req.user.name || 'Moderator',
+          },
+          select: { id: true },
         });
-        return;
+        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
       }
 
       const assignment = await patientModeratorService.rejectAssignment(id, moderator.id);
@@ -157,18 +169,22 @@ export class PatientModeratorController {
         return;
       }
 
-      // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      // Get moderator profile, create if not exists
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
 
       if (!moderator) {
-        res.status(404).json({
-          success: false,
-          message: 'Moderator profile not found',
+        // Auto-create moderator profile
+        moderator = await prisma.moderator.create({
+          data: {
+            userId: req.user.id,
+            fullName: req.user.name || 'Moderator',
+          },
+          select: { id: true },
         });
-        return;
+        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
       }
 
       // Get status filter from query
@@ -202,18 +218,22 @@ export class PatientModeratorController {
         return;
       }
 
-      // Get moderator profile
-      const moderator = await prisma.moderator.findUnique({
+      // Get moderator profile, create if not exists
+      let moderator = await prisma.moderator.findUnique({
         where: { userId: req.user.id },
         select: { id: true },
       });
 
       if (!moderator) {
-        res.status(404).json({
-          success: false,
-          message: 'Moderator profile not found',
+        // Auto-create moderator profile
+        moderator = await prisma.moderator.create({
+          data: {
+            userId: req.user.id,
+            fullName: req.user.name || 'Moderator',
+          },
+          select: { id: true },
         });
-        return;
+        logger.info(`Auto-created moderator profile for user ${req.user.id}`);
       }
 
       const counts = await patientModeratorService.getAssignmentCounts(moderator.id);

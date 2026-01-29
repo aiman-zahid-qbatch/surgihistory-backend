@@ -134,6 +134,17 @@ export class PatientService {
             where: { isArchived: false },
             orderBy: { surgeryDate: 'desc' },
           },
+          assignedModerators: {
+            include: {
+              moderator: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  user: { select: { email: true, isActive: true } },
+                },
+              },
+            },
+          },
         },
       });
       return patient as unknown as Patient;

@@ -100,11 +100,11 @@ router.put(
 /**
  * @route   DELETE /api/patients/:id
  * @desc    Archive patient (soft delete)
- * @access  Private (Admin only)
+ * @access  Private (Surgeon, Admin)
  */
 router.delete(
   '/:id',
-  authorize(UserRole.ADMIN),
+  authorize(UserRole.SURGEON, UserRole.ADMIN),
   patientController.archivePatient
 );
 
